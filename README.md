@@ -80,6 +80,43 @@ All data is synthetic, generated in-process with `@faker-js/faker` on
 startup (`src/data/seed.ts`) — no real customer data, no production
 credentials, no live platform integration anywhere in this repo.
 
+## Use the deployed MCP server
+
+The hosted deployment is available at:
+
+- MCP endpoint: `https://diligence-ai-order-ops-mcp.onrender.com/mcp`
+- Health check: `https://diligence-ai-order-ops-mcp.onrender.com/health`
+- Transport: Streamable HTTP
+
+Verify the deployment without starting a local server:
+
+```bash
+curl https://diligence-ai-order-ops-mcp.onrender.com/health
+```
+
+Expected response:
+
+```json
+{"status":"ok","service":"order-ops-mcp"}
+```
+
+Register the deployed endpoint with Codex:
+
+```bash
+codex mcp add order-ops --url https://diligence-ai-order-ops-mcp.onrender.com/mcp
+codex mcp list
+```
+
+Register it with Claude Code:
+
+```bash
+claude mcp add --transport http --scope user \
+  order-ops https://diligence-ai-order-ops-mcp.onrender.com/mcp
+claude mcp list
+```
+
+For MCP Inspector, choose Streamable HTTP and use the same deployed MCP URL.
+
 ## Setup for a first-time user
 
 This server is already compatible with HTTP-capable MCP clients. It exposes:
@@ -295,9 +332,21 @@ proves the wire protocol works, not just the internal functions.
 1. Push this repo to GitHub.
 2. New → Web Service on Render, connect the repo.
 3. Build command: `npm install && npm run build`. Start command: `npm start`.
-4. Set the `PUBLIC_HOSTNAME` env var to the `.onrender.com` hostname Render
-   assigns, once you know it, to enable host-header validation.
-5. Your MCP URL is `https://<your-service>.onrender.com/mcp`.
+4. In Render → Service → Environment, set:
+
+   ```text
+   PUBLIC_HOSTNAME=diligence-ai-order-ops-mcp.onrender.com
+   ```
+
+   Use only the hostname. Do not include `https://`, `/mcp`, or a trailing
+   slash. Render will restart the service after saving the variable.
+5. Your MCP URL is
+   `https://diligence-ai-order-ops-mcp.onrender.com/mcp`.
+6. Verify the deployment with:
+
+   ```bash
+   curl https://diligence-ai-order-ops-mcp.onrender.com/health
+   ```
 
 ## Product decisions, assumptions, exclusions
 
