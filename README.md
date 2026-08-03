@@ -135,13 +135,13 @@ dependencies:
 
 ```bash
 cd /path/to/order-ops-mcp
-npm install
+pnpm install
 ```
 
 Start the server in Terminal 1:
 
 ```bash
-npm run dev
+pnpm dev
 ```
 
 You should see:
@@ -165,8 +165,8 @@ Expected response:
 Run the automated checks from Terminal 2 as well:
 
 ```bash
-npm test
-npm run smoke
+pnpm test
+pnpm smoke
 ```
 
 The smoke test uses the official MCP client over Streamable HTTP. It checks
@@ -318,20 +318,20 @@ new order. Treat this as synthetic demo data, not a production event source.
 ## Verifying it works
 
 ```bash
-npm test        # unit tests: resolution playbook + propose/confirm safety flow
-npm run smoke    # real end-to-end check: boots the server, drives it with the
+pnpm test        # unit tests: resolution playbook + propose/confirm safety flow
+pnpm smoke       # real end-to-end check: boots the server, drives it with the
                  # actual MCP client over Streamable HTTP — initialize, every
                  # tool, both error paths
 ```
 
-Both are green as of this commit. `npm run smoke` is the one that actually
+Both are green as of this commit. `pnpm smoke` is the one that actually
 proves the wire protocol works, not just the internal functions.
 
 ## Deploying (Render)
 
 1. Push this repo to GitHub.
 2. New → Web Service on Render, connect the repo.
-3. Build command: `npm install && npm run build`. Start command: `npm start`.
+3. Build command: `pnpm install --frozen-lockfile && pnpm build`. Start command: `pnpm start`.
 4. In Render → Service → Environment, set:
 
    ```text
