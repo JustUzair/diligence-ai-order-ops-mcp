@@ -80,30 +80,94 @@ All data is synthetic, generated in-process with `@faker-js/faker` on
 startup (`src/data/seed.ts`) — no real customer data, no production
 credentials, no live platform integration anywhere in this repo.
 
-## Setup
+## Setup for a first-time user
+
+This server is already compatible with HTTP-capable MCP clients. It exposes:
+
+- MCP endpoint: `http://127.0.0.1:3000/mcp`
+- Health check: `http://127.0.0.1:3000/health`
+- Transport: Streamable HTTP
+- Authentication: intentionally disabled for this assignment
 
 Requires Node ≥ 20.
 
+### 1. Start and verify the server
+
+Clone the repository, open a terminal in its directory, and install the
+dependencies:
+
 ```bash
+cd /path/to/order-ops-mcp
 npm install
-npm run dev
-# → [order-ops-mcp] listening on :3000 (POST /mcp, GET /health)
 ```
 
-Point an MCP client (Claude Code, the MCP Inspector, etc.) at
-`http://localhost:3000/mcp` (Streamable HTTP).
+Start the server in Terminal 1:
 
-### Connect Codex CLI
+```bash
+npm run dev
+```
 
-In another terminal:
+You should see:
+
+```text
+[order-ops-mcp] listening on :3000 (POST /mcp, GET /health)
+```
+
+In Terminal 2, verify the health endpoint:
+
+```bash
+curl http://127.0.0.1:3000/health
+```
+
+Expected response:
+
+```json
+{"status":"ok","service":"order-ops-mcp"}
+```
+
+Run the automated checks from Terminal 2 as well:
+
+```bash
+npm test
+npm run smoke
+```
+
+The smoke test uses the official MCP client over Streamable HTTP. It checks
+initialization, every tool, invalid order handling, proposal immutability,
+confirmation, active-queue behavior, and duplicate-confirmation rejection.
+
+### 2. Test with Codex CLI
+
+Register the local HTTP MCP server:
 
 ```bash
 codex mcp add order-ops --url http://127.0.0.1:3000/mcp
+```
+
+Verify the registration:
+
+```bash
 codex mcp list
+codex mcp get order-ops
+```
+
+Start Codex from the repository:
+
+```bash
 codex
 ```
 
-### Connect Claude Code
+Then use this first prompt:
+
+```text
+Use the order-ops MCP server to list all current order exceptions.
+Pick one exception, inspect its full details, and explain the issue.
+Then propose a resolution, but do not confirm or apply it.
+```
+
+### 3. Test with Claude Code
+
+Register the server for the current project:
 
 ```bash
 claude mcp add --transport http --scope local \
@@ -112,22 +176,57 @@ claude mcp list
 claude
 ```
 
-Use `/mcp` inside Claude Code to inspect the active connection.
+Inside Claude Code, use `/mcp` to inspect the active connection, then run the
+same diagnostic prompt above.
 
-### Connect MCP Inspector
+### 4. Test with MCP Inspector
 
 ```bash
 npx @modelcontextprotocol/inspector
 ```
 
-Choose Streamable HTTP in the Inspector and enter:
+Choose Streamable HTTP and enter:
 
 ```text
 http://127.0.0.1:3000/mcp
 ```
 
-Any other MCP client that supports Streamable HTTP can use the same URL. This
-server is not a stdio server, so stdio-only clients need an HTTP adapter.
+Any MCP client supporting Streamable HTTP can use the same URL. This server is
+not a stdio server, so stdio-only clients require an HTTP adapter.
+
+### Authentication decision
+
+Caller authentication and user-management infrastructure were deliberately
+not added in this assignment. The brief explicitly prioritizes a small,
+coherent, useful MCP workflow over picture-perfect production tooling, and
+building and wiring an operator identity system would expand the scope beyond
+the core order-operations problem.
+
+The `approvedBy` value on `confirm_resolution` is therefore an audit label,
+not proof of identity. This is stated as a known gap rather than being hidden:
+the next production step would replace the current middleware seam with
+Bearer/OAuth verification and derive the approving operator from the verified
+identity. Local testing does not require credentials.
+
+## Working MCP output
+
+The following screenshots were captured from real MCP client calls against the
+local Streamable HTTP server. They show the enriched diagnostic payload, the
+agent's explanation of different exception types, controlled confirmation,
+and synthetic failure injection.
+
+- [Initial diagnostic tool calls](docs/images/01-diagnostic-tool-calls.png)
+- [Payment and inventory analysis](docs/images/02-payment-and-inventory-analysis.png)
+- [Fraud and fulfillment analysis](docs/images/03-fraud-and-fulfillment-analysis.png)
+- [Duplicate analysis and priority ordering](docs/images/04-duplicate-analysis-and-priority.png)
+- [Confirmed duplicate resolution](docs/images/05-confirm-resolution.png)
+- [Synthetic failure simulation](docs/images/06-simulate-failure.png)
+
+The demonstrated flow is:
+
+```text
+list exceptions → inspect evidence → propose → human approval → confirm
+```
 
 ## Agent prompts for the demo
 
