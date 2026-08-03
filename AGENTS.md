@@ -80,22 +80,22 @@ Shopify's real published taxonomy on purpose — see README "Data model".
 ## Local development and deployment
 
 ```bash
-npm install
-npm run dev        # tsx watch, http://localhost:3000
-npm test            # unit tests (vitest)
-npm run smoke        # real end-to-end check against a live server
-npm run build && npm start   # production path — what the host runs
+pnpm install
+pnpm dev        # tsx watch, http://localhost:3000
+pnpm test       # unit tests (vitest)
+pnpm smoke      # real end-to-end check against a live server
+pnpm build && pnpm start   # production path — what the host runs
 ```
 
 See README.md for the Render deployment steps.
 
 ## Testing expectations
 
-- `npm test` — unit tests for the resolution playbook, enriched synthetic
+- `pnpm test` — unit tests for the resolution playbook, enriched synthetic
   fixtures, and the store's propose→confirm safety flow (double-confirm
   rejection, unknown-proposal rejection, no-mutation-before-confirm, and
   resolved-versus-escalated queue behavior).
-- `npm run smoke` — boots the real server and drives it with the actual
+- `pnpm smoke` — boots the real server and drives it with the actual
   `@modelcontextprotocol/client` over Streamable HTTP: initialize handshake,
   every tool, both error paths. Run this after touching `src/server.ts` or
   `src/tools/*` — unit tests alone don't catch wire-level mistakes.
@@ -134,6 +134,6 @@ code in `src/tools` never changes as a result.
 
 ## Definition of done
 
-- `npm test` and `npm run smoke` both green.
+- `pnpm test` and `pnpm smoke` both green.
 - Deployed URL responds to `POST /mcp` and `GET /health`.
 - README has setup, usage, and decisions/assumptions/exclusions filled in.
