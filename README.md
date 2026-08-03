@@ -3,8 +3,8 @@
 A remotely-hosted MCP server that lets an operations team diagnose and
 resolve stuck orders — payment declines, fulfillment holds, incomplete
 fulfillment, likely duplicates — without pulling in an engineer, by letting
-an AI agent ask natural-language questions like *"why is order #4471
-stuck?"* and act on the answer with explicit human confirmation.
+an AI agent ask natural-language questions like _"why is order #4471
+stuck?"_ and act on the answer with explicit human confirmation.
 
 ## The workflow
 
@@ -23,13 +23,13 @@ only on pre-seeded data.
 
 The implementation is intentionally divided around the assignment's highest-value behavior:
 
-| Bucket | What is included | Main files |
-| --- | --- | --- |
-| 1. MCP contract and agent UX | Streamable HTTP endpoint, five tool registrations, LLM-oriented descriptions, structured outputs, and clear error responses | `src/server.ts`, `src/tools/order-tools.ts` |
-| 2. Commerce diagnosis evidence | Synthetic orders, payment attempts, inventory allocations, fulfillment/carrier context, duplicate signals, ownership, priorities, and response SLAs | `src/data/types.ts`, `src/data/seed.ts`, `src/data/store.ts` |
-| 3. Deterministic resolution playbook | Evidence-backed proposals for payment, inventory, fulfillment, duplicate, and unknown/fraud patterns | `src/data/playbook.ts` |
-| 4. Safety and controlled mutation | Inert proposals, operator approval, one-time proposal use, audit timeline entries, allocation release, simulated refund, and active-queue resolution behavior | `src/data/store.ts`, `src/tools/order-tools.ts` |
-| 5. Verification and delivery | Unit tests, live Streamable HTTP smoke test, local setup, Render deployment notes, and known tradeoffs | `test/`, `scripts/smoke-test.ts`, this README |
+| Bucket                               | What is included                                                                                                                                              | Main files                                                   |
+| ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------ |
+| 1. MCP contract and agent UX         | Streamable HTTP endpoint, five tool registrations, LLM-oriented descriptions, structured outputs, and clear error responses                                   | `src/server.ts`, `src/tools/order-tools.ts`                  |
+| 2. Commerce diagnosis evidence       | Synthetic orders, payment attempts, inventory allocations, fulfillment/carrier context, duplicate signals, ownership, priorities, and response SLAs           | `src/data/types.ts`, `src/data/seed.ts`, `src/data/store.ts` |
+| 3. Deterministic resolution playbook | Evidence-backed proposals for payment, inventory, fulfillment, duplicate, and unknown/fraud patterns                                                          | `src/data/playbook.ts`                                       |
+| 4. Safety and controlled mutation    | Inert proposals, operator approval, one-time proposal use, audit timeline entries, allocation release, simulated refund, and active-queue resolution behavior | `src/data/store.ts`, `src/tools/order-tools.ts`              |
+| 5. Verification and delivery         | Unit tests, live Streamable HTTP smoke test, local setup, Render deployment notes, and known tradeoffs                                                        | `test/`, `scripts/smoke-test.ts`, this README                |
 
 The core workflow is buckets 1–4. `simulate_new_failure` exists only to make
 the workflow easy to demonstrate and would be removed or replaced by event
@@ -44,13 +44,13 @@ exceptions (the remaining order is the healthy original in a duplicate pair).
 
 The exception fixtures are deliberately varied but stay inside one workflow:
 
-| Scenario | Diagnostic evidence | Proposed action |
-| --- | --- | --- |
-| Declined payment with stock held (two decline variants) | gateway attempt, decline/advice code, reserved units, SLA owner | release inventory and cancel |
-| Inventory shortage | per-SKU requested/available quantity, location, delivery promise | notify customer of backorder |
-| High-risk fraud hold | hold reason, audit timeline, urgent fraud-team ownership | escalate to a human; do not guess |
-| Incomplete fulfillment | carrier, retry count, last error, promised dates | retry fulfillment |
-| Likely duplicate | matched order, confidence, four matching signals | cancel, refund, and release stock |
+| Scenario                                                | Diagnostic evidence                                              | Proposed action                   |
+| ------------------------------------------------------- | ---------------------------------------------------------------- | --------------------------------- |
+| Declined payment with stock held (two decline variants) | gateway attempt, decline/advice code, reserved units, SLA owner  | release inventory and cancel      |
+| Inventory shortage                                      | per-SKU requested/available quantity, location, delivery promise | notify customer of backorder      |
+| High-risk fraud hold                                    | hold reason, audit timeline, urgent fraud-team ownership         | escalate to a human; do not guess |
+| Incomplete fulfillment                                  | carrier, retry count, last error, promised dates                 | retry fulfillment                 |
+| Likely duplicate                                        | matched order, confidence, four matching signals                 | cancel, refund, and release stock |
 
 Every order also carries synthetic customer history, channel, coarse shipping
 destination, payment attempts, inventory allocations, fulfillment/carrier
@@ -122,7 +122,7 @@ curl http://127.0.0.1:3000/health
 Expected response:
 
 ```json
-{"status":"ok","service":"order-ops-mcp"}
+{ "status": "ok", "service": "order-ops-mcp" }
 ```
 
 Run the automated checks from Terminal 2 as well:
@@ -215,12 +215,17 @@ local Streamable HTTP server. They show the enriched diagnostic payload, the
 agent's explanation of different exception types, controlled confirmation,
 and synthetic failure injection.
 
-- [Initial diagnostic tool calls](docs/images/01-diagnostic-tool-calls.png)
-- [Payment and inventory analysis](docs/images/02-payment-and-inventory-analysis.png)
-- [Fraud and fulfillment analysis](docs/images/03-fraud-and-fulfillment-analysis.png)
-- [Duplicate analysis and priority ordering](docs/images/04-duplicate-analysis-and-priority.png)
-- [Confirmed duplicate resolution](docs/images/05-confirm-resolution.png)
-- [Synthetic failure simulation](docs/images/06-simulate-failure.png)
+The screenshots come from a session in which one order had already been
+resolved, so that session shows five active exceptions. A fresh server restart
+recreates the six seeded active exceptions described above.
+
+- ![List order exceptions](docs/images/00-list-order-exception.png)
+- ![Initial diagnostic tool calls](docs/images/01-diagnostic-tool-calls.png)
+- ![Payment and inventory analysis](docs/images/02-payment-and-inventory-analysis.png)
+- ![Fraud and fulfillment analysis](docs/images/03-fraud-and-fulfillment-analysis.png)
+- ![Duplicate analysis and priority ordering](docs/images/04-duplicate-analysis-and-priority.png)
+- ![Confirmed duplicate resolution](docs/images/05-confirm-resolution.png)
+- ![Synthetic failure simulation](docs/images/06-simulate-failure.png)
 
 The demonstrated flow is:
 
@@ -314,7 +319,7 @@ proves the wire protocol works, not just the internal functions.
   exception queue; a human escalation deliberately remains active.
 - **Auth**: intentionally not implemented in this pass — see AGENTS.md
   "Security baseline" for the reasoning and the exact backfill plan. What
-  *is* in place: host-header validation (DNS-rebinding protection), which is
+  _is_ in place: host-header validation (DNS-rebinding protection), which is
   a different concern from caller authentication and costs nothing to
   include now.
 - **SDK version**: built on `@modelcontextprotocol/server` v2 (current, spec
