@@ -19,6 +19,23 @@ confirm_resolution      → the only tool that actually changes anything
 order, so the loop above can be shown working on something live rather than
 only on pre-seeded data.
 
+> **Render cold-start note:** the deployed service runs on Render and may go
+> idle. The first request after inactivity can take longer while the service
+> wakes up. Retry once or wait for the health check to respond before judging
+> the MCP connection. This is hosting behavior, not an MCP tool failure.
+
+## Quick start: choose a connection
+
+The same five MCP tools are available through two connections:
+
+| Connection | MCP URL | Use it when |
+| --- | --- | --- |
+| `order-ops-local` | `http://127.0.0.1:3000/mcp` | You want fast local development with no Render cold start |
+| `order-ops-render` | `https://diligence-ai-order-ops-mcp.onrender.com/mcp` | You want to test the remotely hosted submission |
+
+For a first demo, the deployed connection is the easiest path. For code
+changes and tests, use the local connection.
+
 ## Feature buckets
 
 The implementation is intentionally divided around the assignment's highest-value behavior:
@@ -103,7 +120,7 @@ Expected response:
 Register the deployed endpoint with Codex:
 
 ```bash
-codex mcp add order-ops --url https://diligence-ai-order-ops-mcp.onrender.com/mcp
+codex mcp add order-ops-render --url https://diligence-ai-order-ops-mcp.onrender.com/mcp
 codex mcp list
 ```
 
@@ -111,11 +128,24 @@ Register it with Claude Code:
 
 ```bash
 claude mcp add --transport http --scope user \
-  order-ops https://diligence-ai-order-ops-mcp.onrender.com/mcp
+  order-ops-render https://diligence-ai-order-ops-mcp.onrender.com/mcp
 claude mcp list
 ```
 
 For MCP Inspector, choose Streamable HTTP and use the same deployed MCP URL.
+
+### Deployment verification
+
+Last verified against the deployed service on 2026-08-03:
+
+- `GET /health` returned `{"status":"ok","service":"order-ops-mcp"}`.
+- MCP initialization over Streamable HTTP succeeded.
+- Read-only `list_order_exceptions` succeeded and returned six active synthetic exceptions.
+- The five registered tools were visible: `list_order_exceptions`,
+  `get_order_details`, `propose_resolution`, `confirm_resolution`, and
+  `simulate_new_failure`.
+
+The live verification above did not mutate an order or proposal.
 
 If Render returns `Invalid Host: diligence-ai-order-ops-mcp.onrender.com`,
 make sure the environment variable contains only the hostname shown above and
@@ -148,6 +178,13 @@ Start the server in Terminal 1:
 
 ```bash
 pnpm dev
+```
+
+Local development does not require `PUBLIC_HOSTNAME`; localhost is allowed by
+default. To exercise the explicit host allowlist locally, run:
+
+```bash
+PUBLIC_HOSTNAME=localhost pnpm dev
 ```
 
 You should see:
@@ -184,14 +221,14 @@ confirmation, active-queue behavior, and duplicate-confirmation rejection.
 Register the local HTTP MCP server:
 
 ```bash
-codex mcp add order-ops --url http://127.0.0.1:3000/mcp
+codex mcp add order-ops-local --url http://127.0.0.1:3000/mcp
 ```
 
 Verify the registration:
 
 ```bash
 codex mcp list
-codex mcp get order-ops
+codex mcp get order-ops-local
 ```
 
 Start Codex from the repository:
@@ -214,7 +251,7 @@ Register the server for the current project:
 
 ```bash
 claude mcp add --transport http --scope local \
-  order-ops http://127.0.0.1:3000/mcp
+  order-ops-local http://127.0.0.1:3000/mcp
 claude mcp list
 claude
 ```
@@ -262,7 +299,6 @@ The screenshots come from a session in which one order had already been
 resolved, so that session shows five active exceptions. A fresh server restart
 recreates the six seeded active exceptions described above.
 
-- ![List order exceptions](docs/images/00-list-order-exception.png)
 - ![Initial diagnostic tool calls](docs/images/01-diagnostic-tool-calls.png)
 - ![Payment and inventory analysis](docs/images/02-payment-and-inventory-analysis.png)
 - ![Fraud and fulfillment analysis](docs/images/03-fraud-and-fulfillment-analysis.png)
