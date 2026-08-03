@@ -117,6 +117,12 @@ claude mcp list
 
 For MCP Inspector, choose Streamable HTTP and use the same deployed MCP URL.
 
+If Render returns `Invalid Host: diligence-ai-order-ops-mcp.onrender.com`,
+make sure the environment variable contains only the hostname shown above and
+redeploy the latest commit. The server explicitly opts out of the adapter's
+localhost-only default and passes `PUBLIC_HOSTNAME` into its production host
+allowlist.
+
 ## Setup for a first-time user
 
 This server is already compatible with HTTP-capable MCP clients. It exposes:

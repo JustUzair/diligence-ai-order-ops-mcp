@@ -1,6 +1,5 @@
 import {
   createMcpExpressApp,
-  hostHeaderValidation,
 } from "@modelcontextprotocol/express";
 import { NodeStreamableHTTPServerTransport } from "@modelcontextprotocol/node";
 import { McpServer } from "@modelcontextprotocol/server";
@@ -31,14 +30,17 @@ function authPlaceholder(
 }
 
 export function buildApp(): Express {
-  const app = createMcpExpressApp();
+  const allowedHost = process.env.PUBLIC_HOSTNAME?.trim();
+  const allowedHosts = allowedHost
+    ? [allowedHost, "localhost", "127.0.0.1", "0.0.0.0"]
+    : undefined;
 
-  const allowedHost = process.env.PUBLIC_HOSTNAME;
-  if (allowedHost) {
-    app.use(
-      hostHeaderValidation([allowedHost, "localhost", "127.0.0.1", "0.0.0.0"]),
-    );
-  } else {
+  // The adapter defaults to localhost validation. Render forwards the public
+  // hostname to the process, so opt into non-localhost mode and provide the
+  // explicit production allowlist through the adapter itself.
+  const app = createMcpExpressApp({ host: "0.0.0.0", allowedHosts });
+
+  if (!allowedHost) {
     // eslint-disable-next-line no-console
     console.warn(
       "[order-ops-mcp] PUBLIC_HOSTNAME is not set — skipping host-header validation. " +
