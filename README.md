@@ -38,7 +38,7 @@ changes and tests, use the local connection.
 
 ## Feature buckets
 
-The implementation is intentionally divided around the assignment's highest-value behavior:
+Here is how the repository is split around the assignment's main work:
 
 | Bucket                               | What is included                                                                                                                                              | Main files                                                   |
 | ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------ |
@@ -48,18 +48,17 @@ The implementation is intentionally divided around the assignment's highest-valu
 | 4. Safety and controlled mutation    | Inert proposals, operator approval, one-time proposal use, audit timeline entries, allocation release, simulated refund, and active-queue resolution behavior | `src/data/store.ts`, `src/tools/order-tools.ts`              |
 | 5. Verification and delivery         | Unit tests, live Streamable HTTP smoke test, local setup, Render deployment notes, and known tradeoffs                                                        | `test/`, `scripts/smoke-test.ts`, this README                |
 
-The core workflow is buckets 1–4. `simulate_new_failure` exists only to make
-the workflow easy to demonstrate and would be removed or replaced by event
-ingestion in a production integration.
+Buckets 1–4 make up the product workflow. `simulate_new_failure` is only a
+demo helper. A production version would receive exceptions from order events.
 
 ## Data model
 
-The process starts with a fixed Faker seed, so every restart restores a
-recognizable demo dataset instead of producing a different presentation each
-time. It contains 21 synthetic orders: 14 healthy controls and six active
-exceptions (the remaining order is the healthy original in a duplicate pair).
+The server starts with a fixed Faker seed. Restarting it restores the same
+demo dataset, which makes the walkthrough repeatable. There are 21 synthetic
+orders: 14 healthy controls and six active exceptions. The other order is the
+healthy original in a duplicate pair.
 
-The exception fixtures are deliberately varied but stay inside one workflow:
+The seed includes these cases, all within the same order-operations workflow:
 
 | Scenario                                                | Diagnostic evidence                                              | Proposed action                   |
 | ------------------------------------------------------- | ---------------------------------------------------------------- | --------------------------------- |
@@ -75,8 +74,8 @@ context, delivery promises, operational priority, response SLA, and a timeline.
 `list_order_exceptions` returns compact triage metadata; `get_order_details`
 returns the full evidence only for the selected order.
 
-Order state and failure reasons mirror public commerce vocabulary rather than
-inventing platform-specific claims:
+The state names use public commerce vocabulary where it helps the data feel
+familiar:
 
 - `CancelReason`: `CUSTOMER | DECLINED | FRAUD | INVENTORY | STAFF | OTHER`
   — Shopify's published
@@ -155,7 +154,8 @@ allowlist.
 
 ## Setup for a first-time user
 
-This server is already compatible with HTTP-capable MCP clients. It exposes:
+You can connect any MCP client that supports Streamable HTTP. The local server
+exposes:
 
 - MCP endpoint: `http://127.0.0.1:3000/mcp`
 - Health check: `http://127.0.0.1:3000/health`
@@ -288,34 +288,118 @@ the next production step would replace the current middleware seam with
 Bearer/OAuth verification and derive the approving operator from the verified
 identity. Local testing does not require credentials.
 
-## Working MCP output
+### Assumptions in the walkthrough
 
-The following screenshots were captured from real MCP client calls against the
-local Streamable HTTP server. They show the enriched diagnostic payload, the
-agent's explanation of different exception types, controlled confirmation,
-and synthetic failure injection.
+The approval prompt says to assume that `Uzair Saiyed` is authenticated. That
+is a demo assumption so the screenshot can show the approval path clearly. The
+current server does not validate that name or authenticate the caller.
 
-The screenshots come from a session in which one order had already been
-resolved, so that session shows five active exceptions. A fresh server restart
-recreates the six seeded active exceptions described above.
+For a production deployment, the `/mcp` route should sit behind OAuth or JWT
+verification. The middleware would derive the operator identity from the
+verified token, check the operator's role before exposing or confirming order
+actions, and pass the verified identity into the audit event. `approvedBy`
+should then come from that identity instead of from untrusted tool input.
 
-- ![Initial diagnostic tool calls](docs/images/01-diagnostic-tool-calls.png)
-- ![Payment and inventory analysis](docs/images/02-payment-and-inventory-analysis.png)
-- ![Fraud and fulfillment analysis](docs/images/03-fraud-and-fulfillment-analysis.png)
-- ![Duplicate analysis and priority ordering](docs/images/04-duplicate-analysis-and-priority.png)
-- ![Confirmed duplicate resolution](docs/images/05-confirm-resolution.png)
-- ![Synthetic failure simulation](docs/images/06-simulate-failure.png)
+## Working MCP flow
 
-The demonstrated flow is:
+These screenshots come from one continuous session with the `order-ops`
+connection. Each prompt is followed by the tool output it produced. The first
+session started with six active exceptions; after `ORD-1015` was resolved, the
+last screenshot shows the remaining five.
+
+The flow was tested against the MCP server and is included here so a reviewer
+can see what an agent actually does with the tools.
+
+### 1. Find the problematic orders
+
+Prompt:
 
 ```text
-list exceptions → inspect evidence → propose → human approval → confirm
+Can you use order-ops and get the faulty/problematic orders?
+```
+
+Output:
+
+![Order exception list](docs/images/flow-1.png)
+
+### 2. Ask for more detail about the top three
+
+Prompt:
+
+```text
+Can you explain in some more detail about the top-3 high priority faulty orders?
+```
+
+Output:
+
+![Top three order diagnostics](docs/images/flow-2.png)
+
+### 3. Read the first part of the diagnosis
+
+The agent pulls the details for `ORD-1015`, `ORD-1016`, and `ORD-1017`, then
+explains what is wrong and why each order needs attention.
+
+![First part of the priority diagnosis](docs/images/flow-3.png)
+
+### 4. Continue the diagnosis
+
+The inventory shortage is separated from the payment cases. The agent also
+explains why `do_not_try_again` should not become an automatic retry.
+
+![Continuation of the priority diagnosis](docs/images/flow-4.png)
+
+### 5. Propose, ask, and confirm a resolution
+
+Prompt:
+
+```text
+Resolve ORD-1015 by releasing the reservation. Assume that the operator is
+authenticated under "Uzair Saiyed" with a valid operator identity.
+```
+
+The agent creates a proposal first and asks for approval. The approval is a
+separate user message:
+
+```text
+Yes, go ahead.
+```
+
+![Proposal and confirmed resolution](docs/images/flow-5.png)
+
+The tool response shows the proposal ID, the guarded action, the operator
+label, released inventory, cancellation, and removal from the active queue.
+
+### 6. Check the queue after confirmation
+
+Prompt:
+
+```text
+Can you list the active faulty orders now?
+```
+
+![Active queue after resolution](docs/images/flow-6.png)
+
+`ORD-1015` is gone from the active queue. The other five exceptions remain.
+
+### Codex configuration for the deployed server
+
+Codex can also connect through its TOML configuration:
+
+```toml
+[mcp_servers.order-ops]
+url = "https://diligence-ai-order-ops-mcp.onrender.com/mcp"
+```
+
+For a local connection, use a different name so both servers can be kept:
+
+```toml
+[mcp_servers.order-ops-local]
+url = "http://127.0.0.1:3000/mcp"
 ```
 
 ## Agent prompts for the demo
 
-These prompts are designed to show the intended product behavior rather than
-simply list tools.
+These prompts exercise the workflow from diagnosis through guarded approval.
 
 ### Diagnose without changing state
 
