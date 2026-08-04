@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { suggestResolution } from "../src/data/playbook.js";
-import type { Order } from "../src/data/types.js";
+import { ResolutionRisk, type Order } from "../src/data/types.js";
 
 function order(overrides: Partial<Order>): Order {
   return {
@@ -43,7 +43,7 @@ describe("suggestResolution", () => {
     expect(result.action).toBe("release_inventory_hold_and_cancel_order");
     expect(result.rationale).toContain("card_declined");
     expect(result.expectedChanges).toContain("Release every inventory allocation");
-    expect(result.risk).toBe("high");
+    expect(result.risk).toBe(ResolutionRisk.HIGH);
   });
 
   it("proposes a backorder notification for stock-related fulfillment holds", () => {

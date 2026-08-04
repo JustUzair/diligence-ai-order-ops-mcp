@@ -1,18 +1,23 @@
 import { buildApp } from "./server.js";
+import {
+  DEFAULT_PORT,
+  SERVICE_NAME,
+  SHUTDOWN_GRACE_PERIOD_MS,
+} from "./constants.js";
 
-const port = Number(process.env.PORT ?? 3000);
+const port = Number(process.env.PORT ?? DEFAULT_PORT);
 const app = buildApp();
 
 const httpServer = app.listen(port, () => {
   // eslint-disable-next-line no-console
-  console.log(`[order-ops-mcp] listening on :${port} (POST /mcp, GET /health)`);
+  console.log(`[${SERVICE_NAME}] listening on :${port} (POST /mcp, GET /health)`);
 });
 
 function shutdown(signal: string): void {
   // eslint-disable-next-line no-console
   console.log(`[order-ops-mcp] received ${signal}, shutting down`);
   httpServer.close(() => process.exit(0));
-  setTimeout(() => process.exit(1), 5000).unref();
+  setTimeout(() => process.exit(1), SHUTDOWN_GRACE_PERIOD_MS).unref();
 }
 
 process.on("SIGTERM", () => shutdown("SIGTERM"));

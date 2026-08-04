@@ -1,8 +1,9 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/server";
-import type { OrdersProvider } from "../data/store.js";
+import { ResolutionRisk, type OrdersProvider } from "../data/types.js";
 import { exceptionSummary, exceptionType } from "../data/store.js";
 import { suggestResolution } from "../data/playbook.js";
+import { MILLISECONDS_PER_MINUTE } from "../constants.js";
 
 export function registerOrderTools(server: McpServer, orders: OrdersProvider): void {
   server.registerTool(
@@ -45,7 +46,10 @@ export function registerOrderTools(server: McpServer, orders: OrdersProvider): v
           exceptionType: exceptionType(order),
           priority: order.operations.priority,
           assignedTeam: order.operations.assignedTeam,
-          exceptionAgeMinutes: Math.max(0, Math.floor((now - new Date(detectedAt).getTime()) / 60_000)),
+          exceptionAgeMinutes: Math.max(
+            0,
+            Math.floor((now - new Date(detectedAt).getTime()) / MILLISECONDS_PER_MINUTE),
+          ),
           responseSlaBreached: order.operations.responseDueAt
             ? new Date(order.operations.responseDueAt).getTime() < now
             : false,
@@ -104,7 +108,11 @@ export function registerOrderTools(server: McpServer, orders: OrdersProvider): v
         rationale: z.string(),
         evidence: z.array(z.string()),
         expectedChanges: z.array(z.string()),
-        risk: z.enum(["low", "medium", "high"]),
+        risk: z.enum([
+          ResolutionRisk.LOW,
+          ResolutionRisk.MEDIUM,
+          ResolutionRisk.HIGH,
+        ]),
       }),
     },
     async ({ orderId }) => {

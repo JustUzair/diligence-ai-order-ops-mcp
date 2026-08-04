@@ -6,6 +6,11 @@ import { McpServer } from "@modelcontextprotocol/server";
 import type { Express, NextFunction, Request, Response } from "express";
 import { getOrdersProvider } from "./data/store.js";
 import { registerOrderTools } from "./tools/order-tools.js";
+import {
+  LOCAL_ALLOWED_HOSTS,
+  SERVICE_NAME,
+  SERVICE_VERSION,
+} from "./constants.js";
 
 /**
  * SECURITY BASELINE (see AGENTS.md for the full statement)
@@ -32,7 +37,7 @@ function authPlaceholder(
 export function buildApp(): Express {
   const allowedHost = process.env.PUBLIC_HOSTNAME?.trim();
   const allowedHosts = allowedHost
-    ? [allowedHost, "localhost", "127.0.0.1", "0.0.0.0"]
+    ? [allowedHost, ...LOCAL_ALLOWED_HOSTS]
     : undefined;
 
   // The adapter defaults to localhost validation. Render forwards the public
@@ -49,10 +54,10 @@ export function buildApp(): Express {
   }
 
   app.get("/health", (_req, res) => {
-    res.json({ status: "ok", service: "order-ops-mcp" });
+    res.json({ status: "ok", service: SERVICE_NAME });
   });
 
-  const server = new McpServer({ name: "order-ops-mcp", version: "0.1.0" });
+  const server = new McpServer({ name: SERVICE_NAME, version: SERVICE_VERSION });
   registerOrderTools(server, getOrdersProvider());
 
   app.post("/mcp", authPlaceholder, async (req, res) => {

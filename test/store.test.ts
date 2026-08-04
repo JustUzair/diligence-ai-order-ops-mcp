@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import type { Order } from "../src/data/types.js";
-import { createInMemoryOrdersProvider, exceptionSummary, isException, type OrdersProvider } from "../src/data/store.js";
+import { ResolutionRisk, type Order, type OrdersProvider } from "../src/data/types.js";
+import { createInMemoryOrdersProvider, exceptionSummary, isException } from "../src/data/store.js";
 
 function baseOrder(overrides: Partial<Order>): Order {
   return {
@@ -107,11 +107,11 @@ describe("propose -> confirm flow", () => {
       "ORD-1",
       "release_inventory_hold_and_cancel_order",
       "test",
-      { evidence: ["payment declined"], expectedChanges: ["release stock"], risk: "high" },
+      { evidence: ["payment declined"], expectedChanges: ["release stock"], risk: ResolutionRisk.HIGH },
     );
     expect(proposal.evidence).toEqual(["payment declined"]);
     expect(proposal.expectedChanges).toEqual(["release stock"]);
-    expect(proposal.risk).toBe("high");
+    expect(proposal.risk).toBe(ResolutionRisk.HIGH);
     expect(provider.getOrder("ORD-1")?.status).toBe("open");
   });
 

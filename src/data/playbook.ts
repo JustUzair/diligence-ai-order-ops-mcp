@@ -1,4 +1,4 @@
-import type { Order, ResolutionAction, ResolutionRisk } from "./types.js";
+import { ResolutionRisk, type Order, type ResolutionAction } from "./types.js";
 
 export interface ResolutionSuggestion {
   action: ResolutionAction;
@@ -34,7 +34,7 @@ export function suggestResolution(order: Order): ResolutionSuggestion {
         "Release its reserved inventory",
         "Remove it from the active exception queue",
       ],
-      risk: "high",
+      risk: ResolutionRisk.HIGH,
     };
   }
 
@@ -52,7 +52,7 @@ export function suggestResolution(order: Order): ResolutionSuggestion {
         "Cancel the unpaid order with reason DECLINED",
         "Remove it from the active exception queue",
       ],
-      risk: "high",
+      risk: ResolutionRisk.HIGH,
     };
   }
 
@@ -72,7 +72,7 @@ export function suggestResolution(order: Order): ResolutionSuggestion {
         "Keep the fulfillment hold in place until inventory is available",
         "Remove the communication exception from the active queue",
       ],
-      risk: "medium",
+      risk: ResolutionRisk.MEDIUM,
     };
   }
 
@@ -91,7 +91,7 @@ export function suggestResolution(order: Order): ResolutionSuggestion {
         "Clear the previous carrier error",
         "Remove it from the active exception queue",
       ],
-      risk: "medium",
+      risk: ResolutionRisk.MEDIUM,
     };
   }
 
@@ -105,6 +105,6 @@ export function suggestResolution(order: Order): ResolutionSuggestion {
       `Assigned team: ${order.operations.assignedTeam}`,
     ],
     expectedChanges: ["Add an escalation event to the order timeline", "Keep the exception active for human review"],
-    risk: "low",
+    risk: ResolutionRisk.LOW,
   };
 }

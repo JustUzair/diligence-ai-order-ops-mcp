@@ -43,7 +43,19 @@ export type OrderStatus = "open" | "cancelled" | "completed";
 export type OrderChannel = "online_store" | "mobile_app" | "marketplace" | "draft_order";
 export type CustomerSegment = "new" | "returning" | "vip";
 export type OperationalPriority = "low" | "normal" | "high" | "urgent";
-export type ResolutionRisk = "low" | "medium" | "high";
+
+export enum ResolutionRisk {
+  LOW = "low",
+  MEDIUM = "medium",
+  HIGH = "high",
+}
+
+export type ExceptionType =
+  | "possible_duplicate"
+  | "declined_payment_inventory_held"
+  | "fulfillment_hold"
+  | "incomplete_fulfillment"
+  | "cancelled_order";
 
 export interface OrderLineItem {
   sku: string;
@@ -171,3 +183,16 @@ export type ResolutionAction =
   | "retry_fulfillment"
   | "cancel_duplicate_order"
   | "escalate_to_human";
+
+export interface OrdersProvider {
+  listExceptions(): Order[];
+  getOrder(orderId: string): Order | undefined;
+  proposeResolution(
+    orderId: string,
+    action: ResolutionAction,
+    rationale: string,
+    context?: { evidence: string[]; expectedChanges: string[]; risk: ResolutionRisk },
+  ): ResolutionProposal;
+  confirmResolution(proposalId: string, approvedBy?: string): { order: Order; proposal: ResolutionProposal };
+  injectFailure(): Order;
+}

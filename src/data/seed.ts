@@ -8,6 +8,7 @@ import type {
   PaymentAttempt,
   TimelineEvent,
 } from "./types.js";
+import { MILLISECONDS_PER_MINUTE } from "../constants.js";
 
 // A fixed seed makes live demos and bug reports reproducible while keeping the
 // records visibly synthetic. Restarting the process restores the same dataset.
@@ -29,17 +30,17 @@ function makeItems(): OrderLineItem[] {
 
 function timeline(events: Array<[minutesAgo: number, label: string]>, now: Date): TimelineEvent[] {
   return events.map(([minutesAgo, label]) => ({
-    at: new Date(now.getTime() - minutesAgo * 60_000).toISOString(),
+    at: new Date(now.getTime() - minutesAgo * MILLISECONDS_PER_MINUTE).toISOString(),
     label,
   }));
 }
 
 function minutesAgo(now: Date, minutes: number): string {
-  return new Date(now.getTime() - minutes * 60_000).toISOString();
+  return new Date(now.getTime() - minutes * MILLISECONDS_PER_MINUTE).toISOString();
 }
 
 function minutesFromNow(now: Date, minutes: number): string {
-  return new Date(now.getTime() + minutes * 60_000).toISOString();
+  return new Date(now.getTime() + minutes * MILLISECONDS_PER_MINUTE).toISOString();
 }
 
 let counter = 1000;
@@ -106,7 +107,7 @@ function exceptionOperations(
     assignedTeam,
     exceptionDetectedAt,
     responseDueAt: new Date(
-      new Date(exceptionDetectedAt).getTime() + responseWindowMinutes * 60_000,
+      new Date(exceptionDetectedAt).getTime() + responseWindowMinutes * MILLISECONDS_PER_MINUTE,
     ).toISOString(),
   };
 }

@@ -1,5 +1,12 @@
 import { randomUUID } from "node:crypto";
-import type { Order, ResolutionAction, ResolutionProposal, ResolutionRisk } from "./types.js";
+import {
+  ResolutionRisk,
+  type ExceptionType,
+  type Order,
+  type OrdersProvider,
+  type ResolutionAction,
+  type ResolutionProposal,
+} from "./types.js";
 import { generateOneFailure, generateSeedOrders } from "./seed.js";
 
 /**
@@ -8,19 +15,6 @@ import { generateOneFailure, generateSeedOrders } from "./seed.js";
  * Shopify-backed implementation could satisfy the same interface without
  * any change to src/tools/*.
  */
-export interface OrdersProvider {
-  listExceptions(): Order[];
-  getOrder(orderId: string): Order | undefined;
-  proposeResolution(
-    orderId: string,
-    action: ResolutionAction,
-    rationale: string,
-    context?: { evidence: string[]; expectedChanges: string[]; risk: ResolutionRisk },
-  ): ResolutionProposal;
-  confirmResolution(proposalId: string, approvedBy?: string): { order: Order; proposal: ResolutionProposal };
-  injectFailure(): Order;
-}
-
 export function isException(order: Order): boolean {
   if (order.operations.resolvedAt) return false;
   return (
@@ -31,13 +25,6 @@ export function isException(order: Order): boolean {
     Boolean(order.possibleDuplicateOf)
   );
 }
-
-export type ExceptionType =
-  | "possible_duplicate"
-  | "declined_payment_inventory_held"
-  | "fulfillment_hold"
-  | "incomplete_fulfillment"
-  | "cancelled_order";
 
 export function exceptionType(order: Order): ExceptionType {
   if (order.possibleDuplicateOf) return "possible_duplicate";
@@ -86,7 +73,7 @@ class InMemoryOrdersProvider implements OrdersProvider {
     orderId: string,
     action: ResolutionAction,
     rationale: string,
-    context = { evidence: [], expectedChanges: [], risk: "low" as const },
+    context = { evidence: [], expectedChanges: [], risk: ResolutionRisk.LOW },
   ): ResolutionProposal {
     if (!this.orders.has(orderId)) throw new Error(`No such order: ${orderId}`);
     const proposal: ResolutionProposal = {
