@@ -25,6 +25,12 @@
 
 Order Ops MCP gives an operations team a focused agent workflow for identifying and resolving order exceptions such as payment declines, inventory holds, incomplete fulfillment, fraud holds, and likely duplicates.
 
+> [!IMPORTANT]
+> `GET /health` is public, but every `POST /mcp` request requires the
+> deployment-configured `MCP_BEARER_TOKEN`. The token is never committed to
+> this repository. Local and Render setup instructions below show how to set
+> it without putting the secret in source control.
+
 An AI agent can ask questions such as:
 
 > “Why is order `ORD-1015` stuck, and what is the safest next action?”
@@ -110,7 +116,8 @@ Expected response:
 
 ```bash
 codex mcp add order-ops-render \
-  --url https://diligence-ai-order-ops-mcp.onrender.com/mcp
+  --url https://diligence-ai-order-ops-mcp.onrender.com/mcp \
+  --bearer-token-env-var MCP_BEARER_TOKEN
 
 codex mcp list
 ```
@@ -127,19 +134,22 @@ what is wrong. Then propose a resolution, but do not confirm or apply it.
 
 ```bash
 claude mcp add --transport http --scope user \
-  order-ops-render https://diligence-ai-order-ops-mcp.onrender.com/mcp
+  order-ops-render https://diligence-ai-order-ops-mcp.onrender.com/mcp \
+  --header "Authorization: Bearer $MCP_BEARER_TOKEN"
 
 claude mcp list
 ```
 
-For MCP Inspector, select **Streamable HTTP** and use the same deployed MCP URL.
+For MCP Inspector, select **Streamable HTTP**, use the same deployed MCP URL,
+and add `Authorization: Bearer <your-render-token>` as a request header.
 
 > [!NOTE]
 > The service is hosted on Render and may sleep after inactivity. The first request can be slower while the service wakes. Check `/health` or retry once before treating a slow initial response as an MCP failure.
 
 ### Deployment verification
 
-The complete deployed MCP flow was last verified on **2026-08-03**:
+The complete deployed MCP flow was last verified on **2026-08-03**, before the
+static bearer-token gate was added:
 
 - `GET /health` returned `{"status":"ok","service":"order-ops-mcp"}`.
 - MCP initialization over Streamable HTTP succeeded.
@@ -154,6 +164,9 @@ The complete deployed MCP flow was last verified on **2026-08-03**:
 The health endpoint was checked again on **2026-08-04** and returned the expected healthy response.
 
 The deployed verification did not mutate an order or proposal.
+
+After setting `MCP_BEARER_TOKEN` in Render, repeat the authenticated flow
+above. Do not record the token in this repository or in screenshots.
 
 ## Connection options
 
@@ -219,9 +232,12 @@ Applies a previously created pending proposal.
 It requires:
 
 - the exact `proposalId`
-- an `approvedBy` operator label
+- a valid bearer-authenticated MCP request
 
-It rejects unknown proposal IDs and proposals that have already been confirmed.
+The server maps the one valid bearer token to the deterministic demo operator
+`John Doe` and writes that identity into the audit timeline. Caller-supplied
+operator names are not accepted. It rejects unknown proposal IDs and proposals
+that have already been confirmed.
 
 ### `simulate_new_failure`
 
@@ -302,78 +318,82 @@ All data is generated in-process with `@faker-js/faker`. The repository contains
 
 ## Working MCP flow
 
-The screenshots below come from one continuous session using the `order-ops` connection.
+The screenshots below show the authenticated end-to-end workflow using the
+`order-ops` connection. The bearer token is configured in the Codex client,
+but the secret itself is intentionally not shown.
 
-The session began with six active exceptions. After `ORD-1015` was confirmed and resolved, the final screenshot shows the remaining five.
+### 1. Invalid bearer access is refused
 
-### 1. Find the problematic orders
+The first attempt uses a stale or invalid MCP authentication state. The agent
+does not continue with a tool call and asks for the MCP connection to be
+reconnected.
 
-Prompt:
+![Invalid bearer access is refused](docs/images/auth-flow/01-invalid-bearer.png)
 
-```text
-Can you use order-ops and get the faulty/problematic orders?
-```
-
-Output:
-
-![Order exception list](docs/images/flow-1.png)
-
-### 2. Ask for more detail about the top three
+### 2. Valid bearer access lists exceptions
 
 Prompt:
 
 ```text
-Can you explain in some more detail about the top-3 high priority faulty orders?
+Get the faulty orders list from order-ops MCP tool. I have logged in and
+configured bearer in config, try again.
 ```
 
-Output:
+The authenticated tool call returns six active synthetic exceptions, their
+priority and assigned team, and the total affected value.
 
-![Top three order diagnostics](docs/images/flow-2.png)
+![Valid bearer lists exceptions](docs/images/auth-flow/02-valid-bearer-list.png)
 
-### 3. Read the first part of the diagnosis
-
-The agent retrieves `ORD-1015`, `ORD-1016`, and `ORD-1017`, then explains what is wrong and why each order requires attention.
-
-![First part of the priority diagnosis](docs/images/flow-3.png)
-
-### 4. Continue the diagnosis
-
-The agent separates the inventory shortage from the payment failures and explains why `do_not_try_again` must not become an automatic retry.
-
-![Continuation of the priority diagnosis](docs/images/flow-4.png)
-
-### 5. Propose, ask, and confirm a resolution
+### 3. Reconnect and inspect the selected order
 
 Prompt:
 
 ```text
-Resolve ORD-1015 by releasing the reservation. Assume that the operator is
-authenticated under "Uzair Saiyed" with a valid operator identity.
+I've authorized and logged in again with correct bearer token setup, now
+verify resolution for ORD-1021 and let's resolve it.
 ```
 
-The agent creates a proposal first and asks for explicit approval.
+The agent reconnects, calls `get_order_details`, and pauses at the client’s
+tool-approval boundary before doing further work.
 
-Approval:
+![Reconnect and inspect](docs/images/auth-flow/03-relogin-and-inspect.png)
 
-```text
-Yes, go ahead.
-```
+### 4. Inspect details and create an inert proposal
 
-![Proposal and confirmed resolution](docs/images/flow-5.png)
+The agent retrieves `ORD-1021` and calls `propose_resolution`. The proposal
+identifies the likely duplicate, expected cancellation/refund/inventory
+changes, and high risk. No order state has changed yet.
 
-The result shows the proposal ID, guarded action, operator label, released inventory, cancellation, and removal from the active exception queue.
+![Details and proposal](docs/images/auth-flow/04-details-and-proposal.png)
 
-### 6. Check the queue after confirmation
+### 5. Apply only after explicit approval
 
-Prompt:
+The operator explicitly approves the proposal. The MCP call contains only the
+proposal ID; the server supplies the deterministic `John Doe` audit identity.
 
-```text
-Can you list the active faulty orders now?
-```
+![Explicit approval and confirmation](docs/images/auth-flow/05-explicit-approval.png)
 
-![Active queue after resolution](docs/images/flow-6.png)
+### 6. Verify the applied resolution
 
-`ORD-1015` no longer appears in the queue. The other five active exceptions remain.
+The confirmation response shows `approvedBy: "John Doe"`, the order is
+cancelled, payment is refunded, inventory is released, and the active queue
+now contains five orders instead of six.
+
+![Successful resolution and queue verification](docs/images/auth-flow/06-resolution-applied.png)
+
+### Supporting diagnosis evidence
+
+These earlier screenshots provide additional detail for the exception-list and
+top-priority diagnosis steps. They are read-only diagnostic evidence; the
+authenticated proposal-and-confirm flow above is the current canonical flow.
+
+![Earlier order exception list](docs/images/flow-1.png)
+
+![Earlier top-three diagnostics](docs/images/flow-2.png)
+
+![Earlier priority diagnosis](docs/images/flow-3.png)
+
+![Earlier diagnosis continuation](docs/images/flow-4.png)
 
 ## Local development
 
@@ -390,6 +410,7 @@ git clone https://github.com/JustUzair/diligence-ai-order-ops-mcp.git
 cd diligence-ai-order-ops-mcp
 
 pnpm install
+export MCP_BEARER_TOKEN="$(openssl rand -hex 32)"
 pnpm dev
 ```
 
@@ -411,6 +432,15 @@ Local development does not require `PUBLIC_HOSTNAME`. To exercise the explicit h
 ```bash
 PUBLIC_HOSTNAME=localhost pnpm dev
 ```
+
+`MCP_BEARER_TOKEN` is required locally as well. Run `pnpm dev` in a shell
+where the token has already been exported. If it is missing, `/health` remains
+available but `/mcp` fails closed with HTTP 503.
+
+All runtime configuration is loaded and validated centrally by
+`src/config/env.ts` using `dotenv` and Zod. Application code reads the typed
+`env` object rather than accessing `process.env` directly. `.env` is ignored by
+Git; use `.env.example` as the non-secret template.
 
 Verify the service:
 
@@ -435,7 +465,8 @@ pnpm smoke
 
 ```bash
 codex mcp add order-ops-local \
-  --url http://127.0.0.1:3000/mcp
+  --url http://127.0.0.1:3000/mcp \
+  --bearer-token-env-var MCP_BEARER_TOKEN
 
 codex mcp list
 codex mcp get order-ops-local
@@ -447,6 +478,9 @@ Codex TOML configuration:
 ```toml
 [mcp_servers.order-ops-local]
 url = "http://127.0.0.1:3000/mcp"
+
+[mcp_servers.order-ops-local.http_headers]
+"Authorization" = "Bearer YOUR_LOCAL_MCP_TOKEN"
 ```
 
 The hosted connection can be kept alongside it:
@@ -454,13 +488,22 @@ The hosted connection can be kept alongside it:
 ```toml
 [mcp_servers.order-ops]
 url = "https://diligence-ai-order-ops-mcp.onrender.com/mcp"
+
+[mcp_servers.order-ops.http_headers]
+"Authorization" = "Bearer YOUR_RENDER_MCP_TOKEN"
 ```
+
+These Codex examples belong in `~/.codex/config.toml`, not in this repository.
+Replace the placeholder only in your local config with the private token from
+your local shell or Render environment. The server receives it directly as
+the standard `Authorization` header.
 
 ### 4. Connect Claude Code locally
 
 ```bash
 claude mcp add --transport http --scope local \
-  order-ops-local http://127.0.0.1:3000/mcp
+  order-ops-local http://127.0.0.1:3000/mcp \
+  --header "Authorization: Bearer $MCP_BEARER_TOKEN"
 
 claude mcp list
 claude
@@ -479,6 +522,10 @@ Choose **Streamable HTTP** and enter:
 ```text
 http://127.0.0.1:3000/mcp
 ```
+
+Add an `Authorization` header with the value `Bearer <your-local-token>` in
+Inspector. For the hosted endpoint, use the Render token provided out of band;
+never put that value in this README or a committed Inspector configuration.
 
 This project is an HTTP MCP server, not a stdio server. Stdio-only clients require an HTTP adapter.
 
@@ -504,9 +551,10 @@ confirm_resolution. Wait for me to explicitly approve the proposalId.
 ### Demonstrate the safety boundary
 
 ```text
-I approve proposalId <paste-proposal-id-here> for operator "Demo Operator".
-Call confirm_resolution once, report the structured result, then try the same
-proposalId a second time and show that the server rejects reuse.
+I approve proposalId <paste-proposal-id-here>.
+Call confirm_resolution once, report the structured result and the server-side
+John Doe audit identity, then try the same proposalId a second time and show
+that the server rejects reuse.
 ```
 
 ### Demonstrate safe escalation
@@ -591,13 +639,16 @@ It verifies:
    pnpm start
    ```
 
-5. Add this environment variable:
+5. Add these environment variables:
 
    ```text
    PUBLIC_HOSTNAME=diligence-ai-order-ops-mcp.onrender.com
+   MCP_BEARER_TOKEN=<set-a-private-random-value-in-Render>
    ```
 
    Use only the hostname. Do not include `https://`, `/mcp`, or a trailing slash.
+   Keep the bearer token only in Render’s environment settings. Do not commit
+   it, paste it into README examples, or send it through GitHub.
 
 6. Verify the deployment:
 
@@ -627,6 +678,7 @@ Versions below reflect the checked-in `package.json` and lockfile.
 | MCP test client    | `@modelcontextprotocol/client`  | `2.0.0`                     |
 | HTTP server        | Express                         | `5.2.1`                     |
 | Validation         | Zod                             | `4.4.3`                     |
+| Environment loading | dotenv                         | `17.4.2`                    |
 | Synthetic data     | `@faker-js/faker`               | `10.5.0`                    |
 | Unit testing       | Vitest                          | `4.1.10`                    |
 | TypeScript runner  | `tsx`                           | `4.23.5`                    |
@@ -641,6 +693,9 @@ The project uses the MCP v2 package split rather than the legacy monolithic `@mo
 
 - Host-header validation through the MCP Express adapter when `PUBLIC_HOSTNAME` is configured
 - Explicit production host allowlist
+- Static bearer authentication on `POST /mcp` through `MCP_BEARER_TOKEN`
+- Public liveness check on `GET /health`
+- Constant-time bearer-token comparison and generic unauthorized responses
 - Two-step propose and confirm workflow
 - One-time proposal confirmation
 - Zod input validation
@@ -648,21 +703,18 @@ The project uses the MCP v2 package split rather than the legacy monolithic `@mo
 - No production credentials or customer data
 - Deterministic escalation for unsupported patterns
 
-### Intentionally deferred
+### Deliberately limited
 
-Caller authentication and user management are not implemented in this assignment.
+Authentication is intentionally one shared static bearer token, as requested
+for this assignment. There is no OAuth, token issuance, expiry, rotation,
+per-user identity, or user-management infrastructure. The valid token maps to
+the deterministic demo operator `John Doe`; the client cannot supply an
+arbitrary `approvedBy` value.
 
-The `approvedBy` value is currently an audit label supplied by the caller. It is not proof of identity.
-
-The existing `authPlaceholder` middleware in `src/server.ts` is the integration seam for a production auth layer. A production version should:
-
-1. verify a Bearer token, OAuth token, or JWT
-2. derive the operator identity from the verified token
-3. enforce role-based permissions
-4. stop accepting `approvedBy` as untrusted tool input
-5. write the verified identity into the audit event
-
-The walkthrough’s instruction to assume that `Uzair Saiyed` is authenticated is a demo assumption. The current server does not validate that identity.
+The token is required in both local and hosted environments. If the server is
+started without `MCP_BEARER_TOKEN`, `/health` remains available for liveness,
+but `/mcp` is disabled with a fail-closed response until the service is
+restarted with the variable configured.
 
 ## Design decisions and tradeoffs
 
@@ -701,7 +753,7 @@ Each request receives a fresh transport. The workflow does not require per-conne
 
 The repository names unfinished production concerns instead of disguising them:
 
-- caller authentication is deferred
+- authentication uses one static bearer token; OAuth and user management are deferred
 - state is in-process and non-durable
 - priority and SLA values are synthetic
 - the failure-injection tool is demo-only
@@ -710,27 +762,23 @@ See [`AGENTS.md`](AGENTS.md) for the project’s source-of-truth decisions and h
 
 ## Known gaps and next steps
 
-1. **Add authenticated operator identity**
-
-   Replace `authPlaceholder` with Bearer, OAuth, or JWT verification and derive the approver from the verified identity.
-
-2. **Persist operational state**
+1. **Persist operational state**
 
    Replace the in-memory maps with a durable database and use transactional proposal confirmation.
 
-3. **Connect a real commerce provider**
+2. **Connect a real commerce provider**
 
    Implement `OrdersProvider` against Shopify, an OMS, or internal commerce services.
 
-4. **Add authorization policy**
+3. **Add authorization policy**
 
    Restrict high-risk actions such as refunds and cancellations by operator role and order value.
 
-5. **Add idempotency and concurrency control**
+4. **Add idempotency and concurrency control**
 
    Protect confirmation against concurrent requests across multiple service instances.
 
-6. **Add customer-facing explanation generation**
+5. **Add customer-facing explanation generation**
 
    Keep the deterministic operational action, then optionally use an LLM to draft a customer-safe explanation.
 

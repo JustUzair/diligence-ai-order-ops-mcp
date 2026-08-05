@@ -33,8 +33,8 @@ propose_resolution → confirm_resolution` — works correctly and each tool's
 3. Everything else (extra tools, polish, deployment niceties).
 
 Explicitly **out of scope** this sprint: frontend, a complete commerce
-backend, complex CI/CD, and (for now) caller authentication — see Security
-baseline.
+backend, complex CI/CD, OAuth, and user-management infrastructure — see
+Security baseline.
 
 ## Domain language
 
@@ -61,12 +61,13 @@ Shopify's real published taxonomy on purpose — see README "Data model".
 
 ## Security baseline
 
-- **Caller authentication: not implemented.** Deliberately deferred — see
-  `authPlaceholder` in `src/server.ts`. Backfill plan when picked back up:
-  replace it with `requireBearerAuth({ verifier })` from
-  `@modelcontextprotocol/express`, which is already a dependency, so this is
-  a swap, not a new integration. Nothing in `src/tools` needs to change when
-  that happens.
+- **Caller authentication: implemented as one static bearer token.** Every
+  `POST /mcp` request requires `MCP_BEARER_TOKEN`; `GET /health` remains public.
+  The token maps to the deterministic demo operator `John Doe`, so
+  `confirm_resolution` does not accept an arbitrary caller-supplied operator
+  name. Missing configuration fails closed for `/mcp` while keeping health
+  checks available. OAuth, expiry, rotation, issuance, and user management are
+  deliberately excluded by the assignment scope.
 - **Host-header validation: implemented.** DNS-rebinding protection via
   `hostHeaderValidation`, gated on the `PUBLIC_HOSTNAME` env var. This is a
   different, cheaper concern than "who's allowed to call this," and there's
@@ -81,7 +82,7 @@ Shopify's real published taxonomy on purpose — see README "Data model".
 
 ```bash
 pnpm install
-pnpm dev        # tsx watch, http://localhost:3000
+MCP_BEARER_TOKEN=<local-private-value> pnpm dev  # tsx watch, http://localhost:3000
 pnpm test       # unit tests (vitest)
 pnpm smoke      # real end-to-end check against a live server
 pnpm build && pnpm start   # production path — what the host runs
@@ -97,14 +98,15 @@ See README.md for the Render deployment steps.
   resolved-versus-escalated queue behavior).
 - `pnpm smoke` — boots the real server and drives it with the actual
   `@modelcontextprotocol/client` over Streamable HTTP: initialize handshake,
-  every tool, both error paths. Run this after touching `src/server.ts` or
+  bearer-auth rejection paths, every tool, and both workflow error paths. Run this after touching `src/server.ts` or
   `src/tools/*` — unit tests alone don't catch wire-level mistakes.
 
 ## Time-box fallbacks
 
-- If auth isn't backfilled before submission: ship without it and name it as
-  the one known gap. The brief explicitly allows incomplete work when the
-  tradeoff is stated, and this one already is (right here).
+- Keep the bearer token out of the repository, README, screenshots, demos,
+  commit history, and issue tracker. Set it locally or in Render’s environment
+  settings and share it with a reviewer only out of band if they need to test
+  the hosted endpoint.
 - If a real Shopify dev-store integration was attempted and isn't stable by
   submission time: fall back to the in-memory mock, which is already the
   default behind `OrdersProvider`. A half-working integration should never
@@ -123,8 +125,8 @@ code in `src/tools` never changes as a result.
   and reading their actual shipped type declarations — v1 is still `latest`
   under its old package name, which makes it an easy trap for an agent (or a
   human) to fall into by habit. v2 is the line aligned with the current spec.
-- **Auth**: scoped out on purpose, sequenced as a backfill. Recorded above,
-  not hidden.
+- **Auth**: one shared bearer token was added after reviewer guidance;
+  OAuth/user-management infrastructure remains intentionally out of scope.
 - **Data source**: in-memory mock seeded with Shopify's real
   `OrderCancelReason` / fulfillment-hold-reason vocabulary, not a live
   Shopify dev store — see README "Data model" for the reasoning.
