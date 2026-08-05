@@ -74,36 +74,41 @@ describe("propose -> confirm flow", () => {
     provider = createInMemoryOrdersProvider([baseOrder({})]);
   });
 
-  it("does not mutate the order when a resolution is only proposed", () => {
-    provider.proposeResolution("ORD-1", "release_inventory_hold_and_cancel_order", "test");
-    const order = provider.getOrder("ORD-1")!;
+  it("does not mutate the order when a resolution is only proposed", async () => {
+    await provider.proposeResolution("ORD-1", "release_inventory_hold_and_cancel_order", "test");
+    const order = (await provider.getOrder("ORD-1"))!;
     expect(order.inventoryReserved).toBe(true);
     expect(order.status).toBe("open");
   });
 
-  it("applies the action only once confirmed, and records who approved it", () => {
-    const proposal = provider.proposeResolution("ORD-1", "release_inventory_hold_and_cancel_order", "test");
-    const { order } = provider.confirmResolution(proposal.id, "jane@ops");
+  it("applies the action only once confirmed, and records who approved it", async () => {
+    const proposal = await provider.proposeResolution("ORD-1", "release_inventory_hold_and_cancel_order", "test");
+    const { order } = await provider.confirmResolution(proposal.id, "jane@ops");
     expect(order.inventoryReserved).toBe(false);
     expect(order.inventoryAllocations[0]?.status).toBe("released");
     expect(order.status).toBe("cancelled");
     expect(order.operations.resolvedAt).toBeDefined();
-    expect(provider.listExceptions()).toHaveLength(0);
+    expect(await provider.listExceptions()).toHaveLength(0);
     expect(order.timeline.at(-1)?.label).toContain("jane@ops");
+    const audit = await provider.getAuditLog("ORD-1");
+    expect(audit.map((entry) => entry.eventType)).toEqual(["resolution_proposed", "resolution_confirmed"]);
+    expect(audit.at(-1)?.actorId).toBe("jane@ops");
   });
 
-  it("rejects confirming the same proposal twice", () => {
-    const proposal = provider.proposeResolution("ORD-1", "retry_fulfillment", "test");
-    provider.confirmResolution(proposal.id, "jane@ops");
-    expect(() => provider.confirmResolution(proposal.id, "jane@ops")).toThrow(/already confirmed/);
+  it("returns the recorded result when the same proposal is confirmed twice", async () => {
+    const proposal = await provider.proposeResolution("ORD-1", "retry_fulfillment", "test");
+    const first = await provider.confirmResolution(proposal.id, "jane@ops");
+    const second = await provider.confirmResolution(proposal.id, "jane@ops");
+    expect(second.order).toEqual(first.order);
+    expect(second.proposal.status).toBe("confirmed");
   });
 
-  it("rejects confirming an unknown proposal id", () => {
-    expect(() => provider.confirmResolution("PROP-does-not-exist")).toThrow(/No such proposal/);
+  it("rejects confirming an unknown proposal id", async () => {
+    await expect(provider.confirmResolution("PROP-does-not-exist")).rejects.toThrow(/No such proposal/);
   });
 
-  it("stores evidence and expected changes with the inert proposal", () => {
-    const proposal = provider.proposeResolution(
+  it("stores evidence and expected changes with the inert proposal", async () => {
+    const proposal = await provider.proposeResolution(
       "ORD-1",
       "release_inventory_hold_and_cancel_order",
       "test",
@@ -112,13 +117,13 @@ describe("propose -> confirm flow", () => {
     expect(proposal.evidence).toEqual(["payment declined"]);
     expect(proposal.expectedChanges).toEqual(["release stock"]);
     expect(proposal.risk).toBe(ResolutionRisk.HIGH);
-    expect(provider.getOrder("ORD-1")?.status).toBe("open");
+    expect((await provider.getOrder("ORD-1"))?.status).toBe("open");
   });
 
-  it("keeps a confirmed human escalation in the active queue", () => {
-    const proposal = provider.proposeResolution("ORD-1", "escalate_to_human", "manual review needed");
-    provider.confirmResolution(proposal.id, "jane@ops");
-    expect(provider.getOrder("ORD-1")?.operations.resolvedAt).toBeUndefined();
-    expect(provider.listExceptions()).toHaveLength(1);
+  it("keeps a confirmed human escalation in the active queue", async () => {
+    const proposal = await provider.proposeResolution("ORD-1", "escalate_to_human", "manual review needed");
+    await provider.confirmResolution(proposal.id, "jane@ops");
+    expect((await provider.getOrder("ORD-1"))?.operations.resolvedAt).toBeUndefined();
+    expect(await provider.listExceptions()).toHaveLength(1);
   });
 });

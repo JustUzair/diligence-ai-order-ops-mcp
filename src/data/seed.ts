@@ -8,11 +8,15 @@ import type {
   PaymentAttempt,
   TimelineEvent,
 } from "./types.js";
-import { MILLISECONDS_PER_MINUTE } from "../constants.js";
+import {
+  FIRST_PUBLIC_ORDER_SEQUENCE,
+  MILLISECONDS_PER_MINUTE,
+  SYNTHETIC_DATA_SEED,
+} from "../constants.js";
 
 // A fixed seed makes live demos and bug reports reproducible while keeping the
 // records visibly synthetic. Restarting the process restores the same dataset.
-faker.seed(20260803);
+faker.seed(SYNTHETIC_DATA_SEED);
 
 function money(): number {
   return faker.number.int({ min: 1500, max: 45000 }); // cents
@@ -43,7 +47,7 @@ function minutesFromNow(now: Date, minutes: number): string {
   return new Date(now.getTime() + minutes * MILLISECONDS_PER_MINUTE).toISOString();
 }
 
-let counter = 1000;
+let counter = FIRST_PUBLIC_ORDER_SEQUENCE - 1;
 function nextId(): string {
   counter += 1;
   return `ORD-${counter}`;
@@ -360,6 +364,8 @@ function duplicateOrderPair(now: Date): [Order, Order] {
 }
 
 export function generateSeedOrders(now: Date = new Date()): Order[] {
+  faker.seed(SYNTHETIC_DATA_SEED);
+  counter = FIRST_PUBLIC_ORDER_SEQUENCE - 1;
   const orders: Order[] = [];
   for (let i = 0; i < 14; i += 1) orders.push(healthyOrder(now));
   orders.push(declinedPaymentStuckOrder(now, "insufficient_funds"));

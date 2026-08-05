@@ -29,7 +29,8 @@ propose_resolution → confirm_resolution` — works correctly and each tool's
    `description` is written for an LLM caller deciding whether/how to use it.
 2. The safety pattern is airtight: nothing mutates order state except
    `confirm_resolution`, and only against a proposal that actually exists
-   and hasn't already been used.
+   and hasn't already been used. Repeating a confirmed proposal is a read-only
+   idempotent replay of its stored result.
 3. Everything else (extra tools, polish, deployment niceties).
 
 Explicitly **out of scope** this sprint: frontend, a complete commerce
@@ -54,8 +55,9 @@ Shopify's public taxonomy on purpose — see README "Synthetic data and limits".
 - No tool mutates order state directly. Only `confirm_resolution` mutates,
   and only against a `pending` proposal.
 - No real customer data, no production credentials, no live commerce-platform
-  calls anywhere in this repo. Everything is synthetic and generated
-  in-process (`src/data/seed.ts`).
+  calls anywhere in this repo. Faker generates synthetic content; in Postgres
+  mode the database is the source of truth and the memory provider remains the
+  test fallback.
 - Every `registerTool` call has a `description` a model can act on without
   additional docs — that's the actual UX surface for this product.
 
@@ -85,6 +87,7 @@ pnpm install
 MCP_BEARER_TOKEN=<local-private-value> pnpm dev  # tsx watch, http://localhost:3000
 pnpm test       # unit tests (vitest)
 pnpm smoke      # real end-to-end check against a live server
+pnpm db:smoke   # explicit Supabase/Postgres integration check
 pnpm build && pnpm start   # production path — what the host runs
 ```
 
@@ -93,13 +96,16 @@ See README.md for the Render deployment steps.
 ## Testing expectations
 
 - `pnpm test` — unit tests for the resolution playbook, enriched synthetic
-  fixtures, and the store's propose→confirm safety flow (double-confirm
-  rejection, unknown-proposal rejection, no-mutation-before-confirm, and
+  fixtures, and the store's propose→confirm safety flow (idempotent
+  double-confirm, unknown-proposal rejection, no-mutation-before-confirm, and
   resolved-versus-escalated queue behavior).
 - `pnpm smoke` — boots the real server and drives it with the actual
   `@modelcontextprotocol/client` over Streamable HTTP: initialize handshake,
-  bearer-auth rejection paths, every tool, and both workflow error paths. Run this after touching `src/server.ts` or
-  `src/tools/*` — unit tests alone don't catch wire-level mistakes.
+  bearer-auth rejection paths, every tool, proposal immutability,
+  idempotent confirmation, audit retrieval, and synthetic failure injection.
+  Set `SMOKE_PERSISTENCE_MODE=postgres` to drive the configured database.
+- `pnpm db:smoke` — verifies database connectivity, restart-safe bootstrap,
+  public order ids, transactional confirmation, idempotency, and audit rows.
 
 ## Time-box fallbacks
 
@@ -107,10 +113,9 @@ See README.md for the Render deployment steps.
   commit history, and issue tracker. Set it locally or in Render’s environment
   settings and share it with a reviewer only out of band if they need to test
   the hosted endpoint.
-- If a real Shopify dev-store integration was attempted and isn't stable by
-  submission time: fall back to the in-memory mock, which is already the
-  default behind `OrdersProvider`. A half-working integration should never
-  replace a fully-working mock.
+- If a hosted database is unavailable during local work, use
+  `PERSISTENCE_MODE=memory`. Production is configured fail-closed: it requires
+  `PERSISTENCE_MODE=postgres` and a working `DATABASE_URL`.
 
 ## Change discipline
 
@@ -127,9 +132,14 @@ code in `src/tools` never changes as a result.
   human) to fall into by habit. v2 is the line aligned with the current spec.
 - **Auth**: one shared bearer token was added after reviewer guidance;
   OAuth/user-management infrastructure remains intentionally out of scope.
-- **Data source**: in-memory mock seeded with Shopify's real
-  `OrderCancelReason` / fulfillment-hold-reason vocabulary, not a live
-  Shopify dev store — see README "Synthetic data and limits" for the reasoning.
+- **Data source**: synthetic Faker fixtures use Shopify's real
+  `OrderCancelReason` / fulfillment-hold-reason vocabulary. Postgres mode
+  persists the canonical seed, generated demo orders, proposals, and audit
+  events; memory mode is used by default for unit tests.
+- **Persistence**: Prisma/Postgres stores the complete order payload in JSONB,
+  with scalar queue fields, internal UUID relations, public `ORD-...` ids, an
+  atomic order-number allocator, and audit rows. Confirmation uses a short
+  serializable transaction with `SELECT ... FOR UPDATE`.
 - **Synthetic dataset**: fixed Faker seed with 21 repeatable orders and six
   active exception scenarios. Enrichment is limited to evidence the existing
   diagnosis workflow can use; it does not introduce a second product surface.
@@ -137,5 +147,6 @@ code in `src/tools` never changes as a result.
 ## Definition of done
 
 - `pnpm test` and `pnpm smoke` both green.
+- `pnpm db:smoke` green against the configured synthetic database.
 - Deployed health check responds and authenticated `POST /mcp` requests work.
 - README has setup, usage, and decisions/assumptions/exclusions filled in.

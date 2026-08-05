@@ -1,45 +1,46 @@
 # Order Ops MCP
 
-Order Ops MCP is a hosted TypeScript MCP server for commerce operators. It
-helps an AI agent investigate stuck orders, suggest a safe next step, and only
-apply that step after a person approves it.
+Order Ops MCP helps a commerce operations agent find stuck orders, explain the
+evidence, propose a safe next step, and apply it only after explicit approval.
+It is a TypeScript MCP server using Streamable HTTP.
 
 - Hosted MCP: `https://diligence-ai-order-ops-mcp.onrender.com/mcp`
 - Health check: `https://diligence-ai-order-ops-mcp.onrender.com/health`
-- Transport: Streamable HTTP
-- Data: synthetic, repeatable Faker data only
+- Local MCP: `http://127.0.0.1:3000/mcp`
+- Data: synthetic Faker records; Postgres is optional locally and required for
+  the durable production mode
 
 > [!IMPORTANT]
-> `GET /health` is public. Every `POST /mcp` request needs a bearer token in
-> its `Authorization` header. Set `MCP_BEARER_TOKEN` locally or in Render;
-> never commit, screenshot, or put its value in this README.
+> `GET /health` is public. Every `POST /mcp` request needs
+> `Authorization: Bearer <token>`. The token value is never committed or
+> shown in this repository.
 
-## What it supports
-
-The workflow is intentionally small:
+## Workflow and tools
 
 ```text
-list exceptions → inspect one order → propose a resolution → explicit approval → confirm once
+list exceptions → inspect order → propose → explicit approval → confirm → audit
 ```
 
-| Tool | What it does | Changes data? |
+| Tool | Purpose | Writes state? |
 | --- | --- | :---: |
-| `list_order_exceptions` | Lists active issues with priority, owner, SLA, value, and a short summary. | No |
-| `get_order_details` | Gets the payment, inventory, fulfillment, duplicate, and timeline evidence for one order. | No |
-| `propose_resolution` | Returns a suggested action, its evidence, expected effects, and risk. | No |
-| `confirm_resolution` | Applies one pending proposal by `proposalId`. | Yes |
-| `simulate_new_failure` | Adds a synthetic exception for a demo or smoke test. | Demo only |
+| `list_order_exceptions` | Lists active issues, owner, priority, SLA, value, and summary. | No |
+| `get_order_details` | Returns payment, inventory, fulfillment, duplicate, customer, and timeline evidence. | No |
+| `propose_resolution` | Returns an allowlisted action, rationale, evidence, expected changes, and risk. | No |
+| `confirm_resolution` | Applies one existing pending proposal after server-side checks. | Yes |
+| `get_order_audit_log` | Shows who did what, when, and why for one public order id. | No |
+| `simulate_new_failure` | Explicit demo helper that creates one new synthetic exception. | Yes |
 
-The server handles declined payments with reserved stock, stock shortages,
-fraud holds, incomplete fulfillment, and likely duplicate orders. Any pattern
-outside the playbook is escalated instead of guessed.
+Only `confirm_resolution` changes an order. It locks the proposal and order,
+checks the current state, updates the order, stores the result, and writes an
+audit event in one Postgres transaction. Repeating the same confirmation
+returns the stored result instead of applying the action twice.
 
-## Connect in a few minutes
+## Connect as a first-time user
 
-### Use the hosted server with Codex
+### Hosted server with Codex
 
-Get the private token from the deployer out of band, then add this to
-`~/.codex/config.toml` on your own machine:
+Ask the deployer for the private token out of band, then add this to
+`~/.codex/config.toml`:
 
 ```toml
 [mcp_servers.order-ops]
@@ -50,17 +51,15 @@ enabled = true
 "Authorization" = "Bearer YOUR_RENDER_MCP_TOKEN"
 ```
 
-Restart Codex, then try:
+Restart Codex and try:
 
 ```text
-Use order-ops to list the current order exceptions. Pick the highest-priority
-order, inspect it, and explain the issue. Propose a resolution, but do not
-apply it until I explicitly approve it.
+Use order-ops to list the active order exceptions. Pick the highest-priority
+one, inspect its details, and explain the evidence. Propose a resolution, but
+do not confirm it until I explicitly approve it.
 ```
 
-### Use the hosted server with Claude Code
-
-With the same private token available in your shell:
+### Hosted server with Claude Code
 
 ```bash
 claude mcp add --transport http --scope user \
@@ -68,16 +67,15 @@ claude mcp add --transport http --scope user \
   --header "Authorization: Bearer $MCP_BEARER_TOKEN"
 ```
 
-`claude mcp list` confirms the connection. MCP Inspector also works: choose
-**Streamable HTTP**, use the hosted MCP URL, and add
-`Authorization: Bearer <token>` as a request header.
+Use `claude mcp list` to verify the connection. MCP Inspector can use the same
+URL with **Streamable HTTP** and an `Authorization` request header.
 
 > [!NOTE]
-> This demo runs on Render's free tier. After inactivity, the first request can
-> take longer while the service wakes up. Check `/health` or retry once before
-> treating it as an MCP error.
+> The hosted service runs on Render's free tier. It can cold-start after being
+> idle, so the first MCP request may take longer. Check `/health` or retry once
+> before treating a timeout as a tool failure.
 
-### Run it locally
+## Local setup
 
 Requirements: Node.js 20+, pnpm, and an HTTP-capable MCP client.
 
@@ -88,21 +86,20 @@ pnpm install
 cp .env.example .env
 ```
 
-Set a private value for `MCP_BEARER_TOKEN` in `.env`. You can generate one
-with `openssl rand -hex 32`, then start the server:
+Set a private local token in `.env`:
 
 ```bash
-pnpm dev
+MCP_BEARER_TOKEN=$(openssl rand -hex 32)
 ```
 
-Local endpoints:
+The simplest local mode is memory-backed:
 
-| Endpoint | URL |
-| --- | --- |
-| MCP | `http://127.0.0.1:3000/mcp` |
-| Health | `http://127.0.0.1:3000/health` |
+```text
+PERSISTENCE_MODE=memory
+```
 
-Verify that it is up:
+Start it with `pnpm dev`. Health is public, but MCP still needs the bearer
+header:
 
 ```bash
 curl http://127.0.0.1:3000/health
@@ -111,170 +108,163 @@ curl http://127.0.0.1:3000/health
 Expected response:
 
 ```json
-{ "status": "ok", "service": "order-ops-mcp" }
+{"status":"ok","service":"order-ops-mcp"}
 ```
 
-For a local Codex connection, use the same header pattern with the local URL:
+Codex local configuration:
 
 ```toml
 [mcp_servers.order-ops-local]
 url = "http://127.0.0.1:3000/mcp"
+enabled = true
 
 [mcp_servers.order-ops-local.http_headers]
 "Authorization" = "Bearer YOUR_LOCAL_MCP_TOKEN"
 ```
 
-For Claude Code, substitute the local URL in the earlier command and use
-`--scope local`.
+Claude Code uses the same header with the local URL:
 
-`PUBLIC_HOSTNAME` is optional locally. On Render it must be set to
-`diligence-ai-order-ops-mcp.onrender.com` — only the hostname, with no scheme
-or path.
-
-## How the server is organised
-
-```mermaid
-flowchart LR
-    A[MCP client] -->|Bearer token| B[Express: POST /mcp]
-    B --> C[MCP tools]
-    C --> D[OrdersProvider]
-    D --> E[Seeded in-memory store]
-    C --> F[Resolution playbook]
-    F --> G[Pending proposal]
-    G -->|Human approval| H[One controlled change]
-    H --> I[Timeline audit event]
+```bash
+claude mcp add --transport http --scope local \
+  order-ops-local http://127.0.0.1:3000/mcp \
+  --header "Authorization: Bearer $MCP_BEARER_TOKEN"
 ```
 
-| Area | Responsibility | Main location |
-| --- | --- | --- |
-| HTTP and MCP setup | Health endpoint, host validation, authenticated MCP route. | `src/server.ts` |
-| Environment | Loads `.env` and validates runtime settings once. | `src/config/env.ts` |
-| Authentication | Verifies the static bearer token and supplies the demo operator identity. | `src/auth.ts` |
-| Tool contract | Registers the five MCP tools and validates their inputs. | `src/tools/order-tools.ts` |
-| Domain and data | Defines order types, creates fixed synthetic records, and owns mutations. | `src/data/` |
-| Tests | Unit coverage plus a real Streamable HTTP smoke test. | `test/`, `scripts/smoke-test.ts` |
+## Local Supabase/Postgres mode
 
-The tool layer depends on `OrdersProvider`, not directly on the in-memory
-store. A real OMS or Shopify provider can later implement that interface
-without changing the tool contract.
+This app connects to Supabase through PostgreSQL and Prisma; it does not need a
+Supabase anon key or REST Data API key.
 
-## Safety and authentication
+1. Create or use a Supabase project and open **Connect**.
+2. Put the session-mode pooler URL in `DATABASE_URL` for the long-running Node
+   service. Put a direct migration-capable URL in `DIRECT_URL` when available.
+3. Set these in `.env` and keep the values private:
 
-`confirm_resolution` is the only state-changing tool. It accepts only a
-`proposalId` created by `propose_resolution`; it cannot take an arbitrary
-order change. A proposal is pending until it is confirmed and cannot be used
-twice. The store records the approved action in that order's timeline.
+   ```text
+   PERSISTENCE_MODE=postgres
+   DATABASE_URL=<supabase-session-pooler-url>
+   DIRECT_URL=<supabase-direct-or-migration-url>
+   MCP_BEARER_TOKEN=<private-local-token>
+   ```
 
-Authentication is one static bearer token, as requested for this assignment:
+4. Create the tables and seed the canonical synthetic dataset:
 
-- Valid requests send `Authorization: Bearer <MCP_BEARER_TOKEN>`.
-- Missing or incorrect tokens receive `401 Unauthorized` and a standard bearer
-  challenge.
-- If the server starts without `MCP_BEARER_TOKEN`, `/mcp` fails closed with
-  `503`; `/health` remains public for deployment checks.
-- The one valid token maps to the fixed demo operator **John Doe**. Clients do
-  not send an `approvedBy` value, so the audit identity stays deterministic.
+   ```bash
+   pnpm prisma:generate
+   pnpm db:deploy
+   pnpm db:smoke
+   ```
 
-This is deliberately not OAuth or user management. It has no token issuing,
-expiry, rotation, or role system. Those are production follow-ups, not hidden
-assignment scope.
+5. Start the real MCP server and connect Codex or Claude using the local
+   configuration above:
 
-## Synthetic data and limits
+   ```bash
+   pnpm dev
+   ```
 
-The initial dataset contains 21 repeatable synthetic orders: 14 normal orders,
-six active exceptions, and the healthy original referenced by the duplicate
-case. It includes payment attempts, stock allocation, fulfillment context,
-delivery promises, ownership, SLA timing, and an event timeline. No real
-customer data, production credentials, or live commerce calls are used.
+The first bootstrap inserts the fixed canonical seed only when its public
+`ORD-...` rows are missing. Restarting the server does not regenerate or
+overwrite existing records. `simulate_new_failure` is the only path that
+creates another synthetic order, and it allocates the next number from a
+database-locked sequence.
 
-The store lives in process. Data and audit events last while the server is
-running, then return to the fixed seed after a restart. This is intentional for
-a small, reliable demo; durable audit storage is the next step for a real
-deployment.
+The Supabase dashboard will show these tables in **Table Editor**:
 
-## Demo: authenticated resolution flow
+- `orders` — queryable lifecycle fields plus the complete synthetic payload in
+  `data` JSONB;
+- `resolution_proposals` — inert proposals and stored confirmation results;
+- `order_audit_events` — append-only application audit events;
+- `seed_metadata` and `order_number_sequences` — bootstrap and public-id state.
 
-The screenshots below show the current end-to-end flow. The client was
-configured with a bearer token, but the secret is not shown.
+To drive the same official MCP client against Postgres instead of memory:
 
-1. An unavailable or invalid MCP connection cannot call a tool.
+```bash
+SMOKE_PERSISTENCE_MODE=postgres pnpm smoke
+```
 
-   ![Invalid bearer access is refused](docs/images/auth-flow/01-invalid-bearer.png)
+This intentionally writes synthetic smoke data to the configured database.
+Use a disposable project or remove the smoke rows from the dashboard after
+reviewing them.
 
-2. After reconnecting with a valid token, the agent lists the six active
-   exceptions.
+## Data and safety decisions
 
-   ![Valid bearer lists exceptions](docs/images/auth-flow/02-valid-bearer-list.png)
+The initial dataset is 21 repeatable synthetic orders: 14 healthy records, six
+varied active exceptions, and the healthy side of the duplicate pair. Each
+record includes customer context, payment attempts, inventory allocations,
+fulfillment state, delivery promises, ownership, SLA timing, and a timeline.
 
-3. It inspects `ORD-1021`, creates an inert duplicate-order proposal, and
-   presents the expected impact and risk.
+The database has an internal UUID for joins, but operators and tools see only
+the stable public order number, such as `ORD-1015`. Public numbers are unique
+and allocated by Postgres; Faker generates content, not durable identity.
 
-   ![Reconnect and inspect the selected order](docs/images/auth-flow/03-relogin-and-inspect.png)
+The valid static bearer token maps to the deterministic demo operator **John
+Doe**. The client cannot submit an arbitrary `approvedBy` value. This is a
+deliberate assignment-sized auth boundary: no OAuth, token issuing, expiry,
+rotation, or user-management system is included.
 
-   ![Order details and proposed resolution](docs/images/auth-flow/04-details-and-proposal.png)
+For order confirmation, consistency is preferred over availability. The
+provider uses a short `Serializable` transaction and `SELECT ... FOR UPDATE`
+row locks so two operators cannot both apply a duplicate-order refund or
+release the same reservation. Lock acquisition order is consistent and no
+external call runs while the lock is held.
 
-4. Only after the user approves does the agent call `confirm_resolution`. The
-   server records **John Doe**, cancels the duplicate, refunds it, releases its
-   stock, and removes it from the active queue.
-
-   ![Explicit approval and confirmation](docs/images/auth-flow/05-explicit-approval.png)
-
-   ![Successful resolution and queue verification](docs/images/auth-flow/06-resolution-applied.png)
+MCP diagnostic logging is not the business audit store. The durable source of
+truth is `order_audit_events`, exposed through the read-only
+`get_order_audit_log` tool. In a larger production system, an append-only event
+broker such as Kafka and a transactional outbox would be a stronger delivery
+boundary for downstream consumers. Pagination, richer retention controls,
+lock contention metrics, and a full role-based auth layer remain future work.
 
 ## Verify the project
 
 ```bash
-pnpm test
-pnpm smoke
-pnpm build
+pnpm test       # unit tests, memory provider
+pnpm smoke      # official MCP client over Streamable HTTP, memory provider
+pnpm build      # generates Prisma client and compiles TypeScript
+pnpm db:smoke   # explicit Supabase/Postgres integration check
 ```
 
-`pnpm test` covers the playbook, repeatable seed data, bearer-auth rejection,
-and the proposal-to-confirm safety rules. `pnpm smoke` starts the real server
-on an ephemeral port and uses the official MCP client to verify the HTTP
-handshake, unauthenticated rejection, all tools, a successful confirmation,
-proposal reuse rejection, and synthetic failure injection.
+The database smoke check verifies connectivity, idempotent bootstrap, public
+order ids, proposal/confirm persistence, repeat-confirmation idempotency, and
+audit retrieval without exposing internal UUIDs.
 
-Other useful commands:
+## Render deployment
 
-| Command | Purpose |
-| --- | --- |
-| `pnpm dev` | Run the TypeScript server in watch mode. |
-| `pnpm build && pnpm start` | Run the compiled production path. |
-| `pnpm seed:check` | Validate the synthetic seed data. |
-
-## Deploy on Render
-
-Create a Render **Web Service** for this repository and use:
+Use:
 
 ```text
 Build command: pnpm install --frozen-lockfile && pnpm build
 Start command: pnpm start
 ```
 
-Set these environment variables in Render, not in Git:
+Set these Render environment variables. Never commit their values:
 
 ```text
+PERSISTENCE_MODE=postgres
+DATABASE_URL=<Supabase session-mode pooler URL>
+DIRECT_URL=<Supabase migration-capable URL>
 PUBLIC_HOSTNAME=diligence-ai-order-ops-mcp.onrender.com
-MCP_BEARER_TOKEN=<a-private-random-value>
+MCP_BEARER_TOKEN=<private random value>
 ```
 
-Then check:
+Run `pnpm db:deploy` from a trusted local environment or migration job before
+starting a new deployment. Render's service must be able to reach the chosen
+database URL. Keep `/health` public for Render health checks; protect `/mcp`
+with the static bearer token.
 
-```bash
-curl https://diligence-ai-order-ops-mcp.onrender.com/health
-```
+## Repository map
 
-If Render returns `Invalid Host`, check that `PUBLIC_HOSTNAME` contains only
-the hostname above and redeploy. The authenticated `/mcp` route needs the
-same bearer token configured in your MCP client.
+| Area | Location |
+| --- | --- |
+| HTTP, host validation, MCP route | `src/server.ts` |
+| Validated `.env` configuration | `src/config/env.ts` |
+| Static bearer auth and demo identity | `src/auth.ts` |
+| MCP tool contracts | `src/tools/order-tools.ts` |
+| Provider interface and memory implementation | `src/data/types.ts`, `src/data/store.ts` |
+| Prisma client, schema, and migration | `src/data/database.ts`, `prisma/` |
+| Durable provider and transaction logic | `src/data/postgres-store.ts` |
+| Synthetic fixtures and Faker lifecycle | `src/data/seed.ts` |
+| Tests and smoke checks | `test/`, `scripts/` |
 
-## Scope after this assignment
-
-The focused demo is complete, but a production version would add durable
-storage and transactional confirmation, a real order provider, token rotation
-and role-based access, concurrency protection, and replace the demo failure
-tool with real order events.
-
-See [AGENTS.md](AGENTS.md) for the project handoff rules and technical
-invariants.
+See [AGENTS.md](AGENTS.md) for invariants and [db-plan.md](db-plan.md) for the
+design record behind the persistence work.

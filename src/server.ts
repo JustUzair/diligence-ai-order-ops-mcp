@@ -24,7 +24,7 @@ import {
  * protection at the transport layer) — a different concern from "who is
  * allowed to call this server," and one that costs nothing to include now.
  */
-export function buildApp(): Express {
+export async function buildApp(): Promise<Express> {
   const allowedHost = env.PUBLIC_HOSTNAME;
   const allowedHosts = allowedHost
     ? [allowedHost, ...LOCAL_ALLOWED_HOSTS]
@@ -48,7 +48,7 @@ export function buildApp(): Express {
   });
 
   const server = new McpServer({ name: SERVICE_NAME, version: SERVICE_VERSION });
-  registerOrderTools(server, getOrdersProvider());
+  registerOrderTools(server, await getOrdersProvider());
 
   app.post("/mcp", createBearerAuthMiddleware(), async (req, res) => {
     // Stateless: a fresh transport per request. Sessions aren't needed for
