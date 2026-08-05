@@ -1,0 +1,95 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model OrderRecord {
+  id                String    @id @default(uuid()) @db.Uuid
+  orderNumber       String    @unique @map("order_number")
+  orderSequence     Int       @unique @map("order_sequence")
+  status            String
+  paymentStatus     String    @map("payment_status")
+  fulfillmentStatus String    @map("fulfillment_status")
+  priority          String
+  assignedTeam      String    @map("assigned_team")
+  isActiveException Boolean   @map("is_active_exception")
+  resolvedAt        DateTime? @map("resolved_at")
+  version           Int       @default(1)
+  data              Json
+  source            String
+  seedKey           String?   @unique @map("seed_key")
+  createdAt         DateTime  @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  proposals   ResolutionProposalRecord[]
+  auditEvents OrderAuditEvent[]
+
+  @@index([isActiveException, priority])
+  @@index([updatedAt])
+  @@map("orders")
+}
+
+model ResolutionProposalRecord {
+  id                 String    @id
+  orderInternalId    String    @map("order_internal_id") @db.Uuid
+  action             String
+  rationale          String
+  evidence           Json
+  expectedChanges    Json      @map("expected_changes")
+  risk               String
+  status             String
+  createdAt          DateTime  @map("created_at")
+  confirmedAt        DateTime? @map("confirmed_at")
+  approvedBy         String?   @map("approved_by")
+  confirmationKey    String?   @unique @map("confirmation_key")
+  confirmationResult Json?     @map("confirmation_result")
+
+  order OrderRecord @relation(fields: [orderInternalId], references: [id], onDelete: Restrict)
+
+  @@index([orderInternalId, status])
+  @@map("resolution_proposals")
+}
+
+model OrderAuditEvent {
+  id              String   @id @default(uuid()) @db.Uuid
+  orderInternalId String   @map("order_internal_id") @db.Uuid
+  proposalId      String?  @map("proposal_id")
+  eventType       String   @map("event_type")
+  actorType       String   @map("actor_type")
+  actorId         String   @map("actor_id")
+  reason          String
+  occurredAt      DateTime @map("occurred_at")
+  beforeState     Json?    @map("before_state")
+  afterState      Json?    @map("after_state")
+  payload         Json
+  requestId       String?  @map("request_id")
+
+  order OrderRecord @relation(fields: [orderInternalId], references: [id], onDelete: Restrict)
+
+  @@index([orderInternalId, occurredAt])
+  @@index([proposalId])
+  @@map("order_audit_events")
+}
+
+model SeedMetadata {
+  id             String   @id @default(uuid()) @db.Uuid
+  datasetName    String   @map("dataset_name")
+  datasetVersion String   @map("dataset_version")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  @@unique([datasetName, datasetVersion])
+  @@map("seed_metadata")
+}
+
+model OrderNumberSequence {
+  name      String   @id
+  nextValue Int      @map("next_value")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("order_number_sequences")
+}
