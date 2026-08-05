@@ -47,7 +47,7 @@ Security baseline.
   a `proposalId` and records who approved it in the order's timeline.
 
 Failure vocabulary (`CancelReason`, fulfillment hold `reason`) mirrors
-Shopify's real published taxonomy on purpose — see README "Data model".
+Shopify's public taxonomy on purpose — see README "Synthetic data and limits".
 
 ## Non-negotiable invariants
 
@@ -129,7 +129,7 @@ code in `src/tools` never changes as a result.
   OAuth/user-management infrastructure remains intentionally out of scope.
 - **Data source**: in-memory mock seeded with Shopify's real
   `OrderCancelReason` / fulfillment-hold-reason vocabulary, not a live
-  Shopify dev store — see README "Data model" for the reasoning.
+  Shopify dev store — see README "Synthetic data and limits" for the reasoning.
 - **Synthetic dataset**: fixed Faker seed with 21 repeatable orders and six
   active exception scenarios. Enrichment is limited to evidence the existing
   diagnosis workflow can use; it does not introduce a second product surface.
@@ -137,5 +137,5 @@ code in `src/tools` never changes as a result.
 ## Definition of done
 
 - `pnpm test` and `pnpm smoke` both green.
-- Deployed URL responds to `POST /mcp` and `GET /health`.
+- Deployed health check responds and authenticated `POST /mcp` requests work.
 - README has setup, usage, and decisions/assumptions/exclusions filled in.
