@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/server";
+import { AUTHENTICATED_OPERATOR } from "../auth.js";
 import { ResolutionRisk, type OrdersProvider } from "../data/types.js";
 import { exceptionSummary, exceptionType } from "../data/store.js";
 import { suggestResolution } from "../data/playbook.js";
@@ -149,33 +150,33 @@ export function registerOrderTools(server: McpServer, orders: OrdersProvider): v
       description:
         "Applies a previously proposed fix. Requires the exact proposalId returned by propose_resolution — " +
         "there is no way to change order state through this server without going through that proposal step " +
-        "first. Pass approvedBy with the operator's name so it lands in the order's audit timeline. Fails " +
-        "loudly if the proposal is unknown or was already confirmed.",
+        "first. The authenticated shared bearer token maps to the server-side demo operator identity used in " +
+        "the audit timeline; caller-supplied operator names are not accepted. Fails loudly if the proposal is " +
+        "unknown or was already confirmed.",
       inputSchema: z.object({
         proposalId: z.string(),
-        approvedBy: z.string().describe("Name of the ops person approving this action"),
       }),
       outputSchema: z.object({
         proposalId: z.string(),
         orderId: z.string(),
         proposalStatus: z.literal("confirmed"),
         appliedAction: z.string(),
-        approvedBy: z.string(),
+        approvedBy: z.literal(AUTHENTICATED_OPERATOR),
         orderStatus: z.string(),
         paymentStatus: z.string(),
         fulfillmentStatus: z.string(),
         exceptionStillActive: z.boolean(),
       }),
     },
-    async ({ proposalId, approvedBy }) => {
+    async ({ proposalId }) => {
       try {
-        const { order, proposal } = orders.confirmResolution(proposalId, approvedBy);
+        const { order, proposal } = orders.confirmResolution(proposalId, AUTHENTICATED_OPERATOR);
         const output = {
           proposalId: proposal.id,
           orderId: order.id,
           proposalStatus: "confirmed" as const,
           appliedAction: proposal.action,
-          approvedBy,
+          approvedBy: AUTHENTICATED_OPERATOR,
           orderStatus: order.status,
           paymentStatus: order.paymentStatus,
           fulfillmentStatus: order.fulfillmentStatus,

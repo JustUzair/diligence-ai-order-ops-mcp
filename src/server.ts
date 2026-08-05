@@ -3,7 +3,9 @@ import {
 } from "@modelcontextprotocol/express";
 import { NodeStreamableHTTPServerTransport } from "@modelcontextprotocol/node";
 import { McpServer } from "@modelcontextprotocol/server";
-import type { Express, NextFunction, Request, Response } from "express";
+import type { Express } from "express";
+import { createBearerAuthMiddleware } from "./auth.js";
+import { env } from "./config/env.js";
 import { getOrdersProvider } from "./data/store.js";
 import { registerOrderTools } from "./tools/order-tools.js";
 import {
@@ -15,27 +17,15 @@ import {
 /**
  * SECURITY BASELINE (see AGENTS.md for the full statement)
  * ----------------------------------------------------------------
- * Caller authentication is intentionally NOT implemented in this sprint —
- * it's scoped as a deliberate backfill once the core workflow is proven.
- * This middleware is the seam where it plugs in later: swap the body for
- * `requireBearerAuth({ verifier })` from @modelcontextprotocol/express,
- * which this project already depends on. Nothing else in server.ts or
- * src/tools needs to change when that happens.
+ * Caller authentication uses one deployment-configured bearer token. This is
+ * deliberately a shared-secret boundary, not OAuth or user management.
  *
  * What IS in place today: hostHeaderValidation below (DNS-rebinding
  * protection at the transport layer) — a different concern from "who is
  * allowed to call this server," and one that costs nothing to include now.
  */
-function authPlaceholder(
-  _req: Request,
-  _res: Response,
-  next: NextFunction,
-): void {
-  next();
-}
-
 export function buildApp(): Express {
-  const allowedHost = process.env.PUBLIC_HOSTNAME?.trim();
+  const allowedHost = env.PUBLIC_HOSTNAME;
   const allowedHosts = allowedHost
     ? [allowedHost, ...LOCAL_ALLOWED_HOSTS]
     : undefined;
@@ -60,7 +50,7 @@ export function buildApp(): Express {
   const server = new McpServer({ name: SERVICE_NAME, version: SERVICE_VERSION });
   registerOrderTools(server, getOrdersProvider());
 
-  app.post("/mcp", authPlaceholder, async (req, res) => {
+  app.post("/mcp", createBearerAuthMiddleware(), async (req, res) => {
     // Stateless: a fresh transport per request. Sessions aren't needed for
     // this workflow — every tool call is self-contained given an orderId
     // or proposalId, so there's no per-connection state worth keeping.

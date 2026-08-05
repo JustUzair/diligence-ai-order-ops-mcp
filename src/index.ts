@@ -1,11 +1,11 @@
 import { buildApp } from "./server.js";
+import { env } from "./config/env.js";
 import {
-  DEFAULT_PORT,
   SERVICE_NAME,
   SHUTDOWN_GRACE_PERIOD_MS,
 } from "./constants.js";
 
-const port = Number(process.env.PORT ?? DEFAULT_PORT);
+const port = env.PORT;
 const app = buildApp();
 
 const httpServer = app.listen(port, () => {

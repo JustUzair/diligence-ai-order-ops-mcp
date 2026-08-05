@@ -6,7 +6,9 @@
  */
 import { Client } from "@modelcontextprotocol/client";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
-import { buildApp } from "../src/server.js";
+
+// Test-only fallback; never use this value for a deployed service.
+const SMOKE_TEST_TOKEN = "smoke-test-token";
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(`ASSERTION FAILED: ${message}`);
@@ -19,6 +21,9 @@ function textOf(result: { content: Array<{ type: string; text?: string }> }): st
 }
 
 async function main(): Promise<void> {
+  const smokeToken = process.env.MCP_BEARER_TOKEN ?? SMOKE_TEST_TOKEN;
+  process.env.MCP_BEARER_TOKEN = smokeToken;
+  const { buildApp } = await import("../src/server.js");
   const app = buildApp();
   const httpServer = app.listen(0);
   await new Promise((resolve) => httpServer.once("listening", resolve));
@@ -26,14 +31,29 @@ async function main(): Promise<void> {
   if (!address || typeof address === "string") throw new Error("failed to bind server");
   const baseUrl = new URL(`http://127.0.0.1:${address.port}/mcp`);
 
-  const client = new Client({ name: "smoke-test-client", version: "0.0.1" });
-  const transport = new StreamableHTTPClientTransport(baseUrl);
-
   let passed = 0;
   const step = (label: string) => {
     passed += 1;
     console.log(`  ✓ ${label}`);
   };
+
+  const unauthorized = await fetch(baseUrl, { method: "POST", body: "{}" });
+  assert(unauthorized.status === 401, `expected missing bearer token to return 401, got ${unauthorized.status}`);
+  assert(unauthorized.headers.get("www-authenticate") === "Bearer", "expected WWW-Authenticate bearer challenge");
+  step("unauthenticated MCP requests are rejected with 401");
+
+  const wrongToken = await fetch(baseUrl, {
+    method: "POST",
+    headers: { Authorization: "Bearer wrong-token", "Content-Type": "application/json" },
+    body: "{}",
+  });
+  assert(wrongToken.status === 401, `expected wrong bearer token to return 401, got ${wrongToken.status}`);
+  step("MCP requests with the wrong bearer token are rejected");
+
+  const client = new Client({ name: "smoke-test-client", version: "0.0.1" });
+  const transport = new StreamableHTTPClientTransport(baseUrl, {
+    requestInit: { headers: { Authorization: `Bearer ${smokeToken}` } },
+  });
 
   try {
     await client.connect(transport);
@@ -91,9 +111,11 @@ async function main(): Promise<void> {
 
     const confirmResult = await client.callTool({
       name: "confirm_resolution",
-      arguments: { proposalId: proposal.proposalId, approvedBy: "smoke-test" },
+      arguments: { proposalId: proposal.proposalId },
     });
     assert(!confirmResult.isError, "confirm_resolution should not error on first confirmation");
+    const confirmation = confirmResult.structuredContent as { approvedBy: string };
+    assert(confirmation.approvedBy === "John Doe", "confirmation should use the server-side operator identity");
     step("confirm_resolution applied the proposed action");
 
     const afterConfirmList = (
@@ -107,7 +129,7 @@ async function main(): Promise<void> {
 
     const doubleConfirm = await client.callTool({
       name: "confirm_resolution",
-      arguments: { proposalId: proposal.proposalId, approvedBy: "smoke-test" },
+      arguments: { proposalId: proposal.proposalId },
     });
     assert(doubleConfirm.isError, "confirming the same proposal twice should error");
     step("confirm_resolution correctly rejects re-confirming the same proposal");
