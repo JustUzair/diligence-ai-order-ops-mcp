@@ -1,4 +1,5 @@
 import { buildApp } from "./server.js";
+import { disconnectPrismaClient } from "./data/database.js";
 import { env } from "./config/env.js";
 import {
   SERVICE_NAME,
@@ -6,7 +7,7 @@ import {
 } from "./constants.js";
 
 const port = env.PORT;
-const app = buildApp();
+const app = await buildApp();
 
 const httpServer = app.listen(port, () => {
   // eslint-disable-next-line no-console
@@ -16,7 +17,10 @@ const httpServer = app.listen(port, () => {
 function shutdown(signal: string): void {
   // eslint-disable-next-line no-console
   console.log(`[order-ops-mcp] received ${signal}, shutting down`);
-  httpServer.close(() => process.exit(0));
+  httpServer.close(async () => {
+    await disconnectPrismaClient();
+    process.exit(0);
+  });
   setTimeout(() => process.exit(1), SHUTDOWN_GRACE_PERIOD_MS).unref();
 }
 

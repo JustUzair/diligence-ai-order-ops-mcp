@@ -38,7 +38,7 @@ export function registerOrderTools(server: McpServer, orders: OrdersProvider): v
     },
     async () => {
       const now = Date.now();
-      const exceptions = orders.listExceptions().map((order) => {
+      const exceptions = (await orders.listExceptions()).map((order) => {
         const detectedAt = order.operations.exceptionDetectedAt ?? order.createdAt;
         return {
           orderId: order.id,
@@ -80,7 +80,7 @@ export function registerOrderTools(server: McpServer, orders: OrdersProvider): v
       inputSchema: z.object({ orderId: z.string().describe("e.g. ORD-1042") }),
     },
     async ({ orderId }) => {
-      const order = orders.getOrder(orderId);
+      const order = await orders.getOrder(orderId);
       if (!order) {
         return {
           isError: true,
@@ -117,12 +117,12 @@ export function registerOrderTools(server: McpServer, orders: OrdersProvider): v
       }),
     },
     async ({ orderId }) => {
-      const order = orders.getOrder(orderId);
+      const order = await orders.getOrder(orderId);
       if (!order) {
         return { isError: true, content: [{ type: "text" as const, text: `No order found with id ${orderId}.` }] };
       }
       const suggestion = suggestResolution(order);
-      const proposal = orders.proposeResolution(orderId, suggestion.action, suggestion.rationale, {
+      const proposal = await orders.proposeResolution(orderId, suggestion.action, suggestion.rationale, {
         evidence: suggestion.evidence,
         expectedChanges: suggestion.expectedChanges,
         risk: suggestion.risk,
@@ -151,8 +151,8 @@ export function registerOrderTools(server: McpServer, orders: OrdersProvider): v
         "Applies a previously proposed fix. Requires the exact proposalId returned by propose_resolution — " +
         "there is no way to change order state through this server without going through that proposal step " +
         "first. The authenticated shared bearer token maps to the server-side demo operator identity used in " +
-        "the audit timeline; caller-supplied operator names are not accepted. Fails loudly if the proposal is " +
-        "unknown or was already confirmed.",
+        "the audit timeline; caller-supplied operator names are not accepted. Repeating the same confirmation is " +
+        "idempotent and returns the recorded result; unknown or expired proposals fail safely.",
       inputSchema: z.object({
         proposalId: z.string(),
       }),
@@ -170,7 +170,7 @@ export function registerOrderTools(server: McpServer, orders: OrdersProvider): v
     },
     async ({ proposalId }) => {
       try {
-        const { order, proposal } = orders.confirmResolution(proposalId, AUTHENTICATED_OPERATOR);
+        const { order, proposal } = await orders.confirmResolution(proposalId, AUTHENTICATED_OPERATOR);
         const output = {
           proposalId: proposal.id,
           orderId: order.id,
@@ -207,11 +207,38 @@ export function registerOrderTools(server: McpServer, orders: OrdersProvider): v
       inputSchema: z.object({}),
     },
     async () => {
-      const order = orders.injectFailure();
+      const order = await orders.injectFailure();
       return {
         content: [
           { type: "text" as const, text: `Injected ${order.id}: ${exceptionSummary(order)}` },
         ],
+      };
+    },
+  );
+
+  server.registerTool(
+    "get_order_audit_log",
+    {
+      title: "Get order audit log",
+      description:
+        "Returns the durable, order-scoped audit trail for proposals and confirmed resolutions. The log shows " +
+        "who did what, when, why, and the before/after operational state. It exposes the public order id only; " +
+        "internal database identifiers are never returned. Read-only and safe to call before or after a resolution.",
+      inputSchema: z.object({ orderId: z.string().describe("e.g. ORD-1042") }),
+    },
+    async ({ orderId }) => {
+      const order = await orders.getOrder(orderId);
+      if (!order) {
+        return {
+          isError: true,
+          content: [{ type: "text" as const, text: `No order found with id ${orderId}.` }],
+        };
+      }
+      const entries = await orders.getAuditLog(orderId);
+      const output = { orderId, count: entries.length, entries };
+      return {
+        content: [{ type: "text" as const, text: JSON.stringify(output, null, 2) }],
+        structuredContent: output,
       };
     },
   );

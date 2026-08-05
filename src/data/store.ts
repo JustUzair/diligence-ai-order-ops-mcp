@@ -1,11 +1,14 @@
 import { randomUUID } from "node:crypto";
+import { env } from "../config/env.js";
 import {
   ResolutionRisk,
+  type AuditLogEntry,
   type ExceptionType,
   type Order,
   type OrdersProvider,
   type ResolutionAction,
   type ResolutionProposal,
+  isResolutionAction,
 } from "./types.js";
 import { generateOneFailure, generateSeedOrders } from "./seed.js";
 
@@ -56,26 +59,34 @@ export function exceptionSummary(order: Order): string {
 class InMemoryOrdersProvider implements OrdersProvider {
   private orders = new Map<string, Order>();
   private proposals = new Map<string, ResolutionProposal>();
+  private auditLogs = new Map<string, AuditLogEntry[]>();
 
   constructor(seed: Order[]) {
     for (const order of seed) this.orders.set(order.id, order);
   }
 
-  listExceptions(): Order[] {
+  async listExceptions(): Promise<Order[]> {
     return [...this.orders.values()].filter(isException);
   }
 
-  getOrder(orderId: string): Order | undefined {
+  async getOrder(orderId: string): Promise<Order | undefined> {
     return this.orders.get(orderId);
   }
 
-  proposeResolution(
+  async getAuditLog(orderId: string): Promise<AuditLogEntry[]> {
+    return [...(this.auditLogs.get(orderId) ?? [])];
+  }
+
+  async proposeResolution(
     orderId: string,
     action: ResolutionAction,
     rationale: string,
     context = { evidence: [], expectedChanges: [], risk: ResolutionRisk.LOW },
-  ): ResolutionProposal {
-    if (!this.orders.has(orderId)) throw new Error(`No such order: ${orderId}`);
+  ): Promise<ResolutionProposal> {
+    const order = this.orders.get(orderId);
+    if (!order) throw new Error(`No such order: ${orderId}`);
+    if (!isException(order)) throw new Error(`Order ${orderId} is no longer an active exception.`);
+    if (!isResolutionAction(action)) throw new Error(`Unsupported resolution action: ${action}`);
     const proposal: ResolutionProposal = {
       id: `PROP-${randomUUID().slice(0, 8)}`,
       orderId,
@@ -88,17 +99,39 @@ class InMemoryOrdersProvider implements OrdersProvider {
       status: "pending",
     };
     this.proposals.set(proposal.id, proposal);
+    this.appendAudit(orderId, {
+      eventType: "resolution_proposed",
+      actorType: "system",
+      actorId: "order-ops-mcp",
+      reason: rationale,
+      occurredAt: proposal.createdAt,
+      payload: { proposalId: proposal.id, action: proposal.action, risk: proposal.risk },
+    });
     return proposal;
   }
 
-  confirmResolution(proposalId: string, approvedBy = "unknown"): { order: Order; proposal: ResolutionProposal } {
+  async confirmResolution(
+    proposalId: string,
+    approvedBy = "unknown",
+  ): Promise<{ order: Order; proposal: ResolutionProposal }> {
     const proposal = this.proposals.get(proposalId);
     if (!proposal) throw new Error(`No such proposal: ${proposalId}`);
+    if (proposal.status === "confirmed") {
+      const confirmedOrder = this.orders.get(proposal.orderId);
+      if (!confirmedOrder) throw new Error(`No such order: ${proposal.orderId}`);
+      return { order: confirmedOrder, proposal };
+    }
     if (proposal.status !== "pending") throw new Error(`Proposal ${proposalId} is already ${proposal.status}`);
 
     const order = this.orders.get(proposal.orderId);
     if (!order) throw new Error(`No such order: ${proposal.orderId}`);
 
+    const before = {
+      status: order.status,
+      paymentStatus: order.paymentStatus,
+      fulfillmentStatus: order.fulfillmentStatus,
+      inventoryReserved: order.inventoryReserved,
+    };
     applyAction(order, proposal.action);
     if (proposal.action !== "escalate_to_human") {
       order.operations.resolvedAt = new Date().toISOString();
@@ -109,17 +142,46 @@ class InMemoryOrdersProvider implements OrdersProvider {
     });
 
     proposal.status = "confirmed";
+    this.appendAudit(order.id, {
+      eventType: "resolution_confirmed",
+      actorType: "operator",
+      actorId: approvedBy,
+      reason: proposal.rationale,
+      occurredAt: order.timeline.at(-1)?.at ?? new Date().toISOString(),
+      before,
+      after: {
+        status: order.status,
+        paymentStatus: order.paymentStatus,
+        fulfillmentStatus: order.fulfillmentStatus,
+        inventoryReserved: order.inventoryReserved,
+      },
+      payload: { proposalId: proposal.id, action: proposal.action },
+    });
     return { order, proposal };
   }
 
-  injectFailure(): Order {
+  async injectFailure(): Promise<Order> {
     const order = generateOneFailure();
     this.orders.set(order.id, order);
+    this.appendAudit(order.id, {
+      eventType: "failure_injected",
+      actorType: "system",
+      actorId: "order-ops-mcp",
+      reason: "Synthetic failure injected by the demo helper",
+      occurredAt: new Date().toISOString(),
+      after: { exceptionType: exceptionType(order), summary: exceptionSummary(order) },
+    });
     return order;
+  }
+
+  private appendAudit(orderId: string, event: AuditLogEntry): void {
+    const current = this.auditLogs.get(orderId) ?? [];
+    current.push(event);
+    this.auditLogs.set(orderId, current);
   }
 }
 
-function applyAction(order: Order, action: ResolutionAction): void {
+export function applyAction(order: Order, action: ResolutionAction): void {
   switch (action) {
     case "release_inventory_hold_and_cancel_order":
       order.inventoryReserved = false;
@@ -165,9 +227,20 @@ export function createInMemoryOrdersProvider(seed: Order[]): OrdersProvider {
 let singleton: OrdersProvider | undefined;
 
 /** Process-wide store. Fine for a single-instance demo; not meant to survive a restart or scale past one node. */
-export function getOrdersProvider(): OrdersProvider {
-  if (!singleton) {
-    singleton = createInMemoryOrdersProvider(generateSeedOrders());
+export async function getOrdersProvider(): Promise<OrdersProvider> {
+  if (singleton) return singleton;
+
+  if (env.PERSISTENCE_MODE === "postgres") {
+    const { createPostgresOrdersProvider } = await import("./postgres-store.js");
+    const { getPrismaClient } = await import("./database.js");
+    singleton = await createPostgresOrdersProvider(getPrismaClient());
+    return singleton;
   }
+
+  if (env.NODE_ENV === "production") {
+    throw new Error("PERSISTENCE_MODE=postgres is required in production.");
+  }
+
+  singleton = createInMemoryOrdersProvider(generateSeedOrders());
   return singleton;
 }

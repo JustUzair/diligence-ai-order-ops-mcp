@@ -177,22 +177,43 @@ export interface ResolutionProposal {
   status: "pending" | "confirmed" | "expired";
 }
 
-export type ResolutionAction =
-  | "release_inventory_hold_and_cancel_order"
-  | "notify_customer_backorder"
-  | "retry_fulfillment"
-  | "cancel_duplicate_order"
-  | "escalate_to_human";
+export type AuditEventType = "resolution_proposed" | "resolution_confirmed" | "failure_injected";
+
+export interface AuditLogEntry {
+  eventType: AuditEventType;
+  actorType: "operator" | "system";
+  actorId: string;
+  reason: string;
+  occurredAt: string;
+  before?: Record<string, unknown>;
+  after?: Record<string, unknown>;
+  payload?: Record<string, unknown>;
+}
+
+export const RESOLUTION_ACTIONS = [
+  "release_inventory_hold_and_cancel_order",
+  "notify_customer_backorder",
+  "retry_fulfillment",
+  "cancel_duplicate_order",
+  "escalate_to_human",
+] as const;
+
+export type ResolutionAction = (typeof RESOLUTION_ACTIONS)[number];
+
+export function isResolutionAction(value: string): value is ResolutionAction {
+  return (RESOLUTION_ACTIONS as readonly string[]).includes(value);
+}
 
 export interface OrdersProvider {
-  listExceptions(): Order[];
-  getOrder(orderId: string): Order | undefined;
+  listExceptions(): Promise<Order[]>;
+  getOrder(orderId: string): Promise<Order | undefined>;
+  getAuditLog(orderId: string): Promise<AuditLogEntry[]>;
   proposeResolution(
     orderId: string,
     action: ResolutionAction,
     rationale: string,
     context?: { evidence: string[]; expectedChanges: string[]; risk: ResolutionRisk },
-  ): ResolutionProposal;
-  confirmResolution(proposalId: string, approvedBy?: string): { order: Order; proposal: ResolutionProposal };
-  injectFailure(): Order;
+  ): Promise<ResolutionProposal>;
+  confirmResolution(proposalId: string, approvedBy?: string): Promise<{ order: Order; proposal: ResolutionProposal }>;
+  injectFailure(): Promise<Order>;
 }
