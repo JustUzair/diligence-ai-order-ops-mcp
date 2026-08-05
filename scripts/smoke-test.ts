@@ -21,10 +21,13 @@ function textOf(result: { content: Array<{ type: string; text?: string }> }): st
 }
 
 async function main(): Promise<void> {
+  // Unit-style smoke defaults to memory. Set SMOKE_PERSISTENCE_MODE=postgres
+  // when you intentionally want to drive the configured database over MCP.
+  process.env.PERSISTENCE_MODE = process.env.SMOKE_PERSISTENCE_MODE ?? "memory";
   const smokeToken = process.env.MCP_BEARER_TOKEN ?? SMOKE_TEST_TOKEN;
   process.env.MCP_BEARER_TOKEN = smokeToken;
   const { buildApp } = await import("../src/server.js");
-  const app = buildApp();
+  const app = await buildApp();
   const httpServer = app.listen(0);
   await new Promise((resolve) => httpServer.once("listening", resolve));
   const address = httpServer.address();
@@ -127,12 +130,22 @@ async function main(): Promise<void> {
     );
     step("resolved order no longer appears in list_order_exceptions");
 
-    const doubleConfirm = await client.callTool({
+    const repeatConfirm = await client.callTool({
       name: "confirm_resolution",
       arguments: { proposalId: proposal.proposalId },
     });
-    assert(doubleConfirm.isError, "confirming the same proposal twice should error");
-    step("confirm_resolution correctly rejects re-confirming the same proposal");
+    assert(!repeatConfirm.isError, "re-confirming the same proposal should be idempotent");
+    step("confirm_resolution returns the recorded result on repeat confirmation");
+
+    const auditResult = await client.callTool({
+      name: "get_order_audit_log",
+      arguments: { orderId: target.orderId },
+    });
+    assert(!auditResult.isError, "get_order_audit_log should return the order audit trail");
+    const audit = auditResult.structuredContent as { count: number; entries: Array<{ eventType: string }> };
+    assert(audit.count >= 2, "audit trail should include proposal and confirmation events");
+    assert(audit.entries.some((entry) => entry.eventType === "resolution_confirmed"), "audit should record confirmation");
+    step(`get_order_audit_log returned ${audit.count} durable-style audit entries`);
 
     const beforeInject = (
       (await client.callTool({ name: "list_order_exceptions", arguments: {} })).structuredContent as {
