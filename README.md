@@ -1,8 +1,18 @@
 # Order Ops MCP
 
+[![Node.js 20+](https://img.shields.io/badge/Node.js-20%2B-339933?logo=nodedotjs&logoColor=white)](https://nodejs.org/)
+[![TypeScript 7](https://img.shields.io/badge/TypeScript-7-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
+[![MCP v2](https://img.shields.io/badge/MCP-v2-6E56CF)](https://modelcontextprotocol.io/)
+[![Prisma 7](https://img.shields.io/badge/Prisma-7-2D3748?logo=prisma&logoColor=white)](https://www.prisma.io/)
+[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-JSONB%20%7C%20transactions-4169E1?logo=postgresql&logoColor=white)](https://www.postgresql.org/)
+[![pnpm](https://img.shields.io/badge/pnpm-package%20manager-F69220?logo=pnpm&logoColor=white)](https://pnpm.io/)
+
 Order Ops MCP helps a commerce operations agent find stuck orders, explain the
 evidence, propose a safe next step, and apply it only after explicit approval.
 It is a TypeScript MCP server using Streamable HTTP.
+
+The MCP is the product boundary. The agent uses structured tool descriptions to
+move through diagnosis, proposal, approval, confirmation, and audit review.
 
 - Hosted MCP: `https://diligence-ai-order-ops-mcp.onrender.com/mcp`
 - Health check: `https://diligence-ai-order-ops-mcp.onrender.com/health`
@@ -15,20 +25,24 @@ It is a TypeScript MCP server using Streamable HTTP.
 > `Authorization: Bearer <token>`. The token value is never committed or
 > shown in this repository.
 
+## Video demo
+
+[![Watch the demo](docs/images/thumbnail.png)](https://drive.google.com/file/d/1KDWqE04p0IVBSsPOx7-Ha4GzmwUnyfoN/view)
+
 ## Workflow and tools
 
 ```text
 list exceptions → inspect order → propose → explicit approval → confirm → audit
 ```
 
-| Tool | Purpose | Writes state? |
-| --- | --- | :---: |
-| `list_order_exceptions` | Lists active issues, owner, priority, SLA, value, and summary. | No |
-| `get_order_details` | Returns payment, inventory, fulfillment, duplicate, customer, and timeline evidence. | No |
-| `propose_resolution` | Returns an allowlisted action, rationale, evidence, expected changes, and risk. | No |
-| `confirm_resolution` | Applies one existing pending proposal after server-side checks. | Yes |
-| `get_order_audit_log` | Shows who did what, when, and why for one public order id. | No |
-| `simulate_new_failure` | Explicit demo helper that creates one new synthetic exception. | Yes |
+| Tool                    | Purpose                                                                              | Writes state? |
+| ----------------------- | ------------------------------------------------------------------------------------ | :-----------: |
+| `list_order_exceptions` | Lists active issues, owner, priority, SLA, value, and summary.                       |      No       |
+| `get_order_details`     | Returns payment, inventory, fulfillment, duplicate, customer, and timeline evidence. |      No       |
+| `propose_resolution`    | Returns an allowlisted action, rationale, evidence, expected changes, and risk.      |      No       |
+| `confirm_resolution`    | Applies one existing pending proposal after server-side checks.                      |      Yes      |
+| `get_order_audit_log`   | Shows who did what, when, and why for one public order id.                           |      No       |
+| `simulate_new_failure`  | Explicit demo helper that creates one new synthetic exception.                       |      Yes      |
 
 Only `confirm_resolution` changes an order. It locks the proposal and order,
 checks the current state, updates the order, stores the result, and writes an
@@ -37,21 +51,26 @@ returns the stored result instead of applying the action twice.
 
 ## Connect as a first-time user
 
-### Hosted server with Codex
+### Hosted server with Codex CLI
 
-Ask the deployer for the private token out of band, then add this to
-`~/.codex/config.toml`:
+Ask the deployer for the private token out of band. Export it in your shell:
+
+```bash
+export MCP_BEARER_TOKEN='YOUR_RENDER_MCP_TOKEN'
+```
+
+Then add this to `~/.codex/config.toml`:
 
 ```toml
 [mcp_servers.order-ops]
 url = "https://diligence-ai-order-ops-mcp.onrender.com/mcp"
 enabled = true
 
-[mcp_servers.order-ops.http_headers]
-"Authorization" = "Bearer YOUR_RENDER_MCP_TOKEN"
+[mcp_servers.order-ops.env_http_headers]
+"Authorization" = "MCP_BEARER_TOKEN"
 ```
 
-Restart Codex and try:
+Restart Codex and verify the server with `codex mcp list`. Then try:
 
 ```text
 Use order-ops to list the active order exceptions. Pick the highest-priority
@@ -61,14 +80,26 @@ do not confirm it until I explicitly approve it.
 
 ### Hosted server with Claude Code
 
+Export the same private token, then register the remote HTTP MCP server:
+
 ```bash
+export MCP_BEARER_TOKEN='YOUR_RENDER_MCP_TOKEN'
+
 claude mcp add --transport http --scope user \
   order-ops https://diligence-ai-order-ops-mcp.onrender.com/mcp \
   --header "Authorization: Bearer $MCP_BEARER_TOKEN"
 ```
 
-Use `claude mcp list` to verify the connection. MCP Inspector can use the same
-URL with **Streamable HTTP** and an `Authorization` request header.
+Use `claude mcp list` to verify the connection. In Claude Code, ask:
+
+```text
+Use order-ops to list the active order exceptions. Inspect the highest-priority
+one and explain the evidence. Propose a resolution, but wait for my approval
+before confirming anything.
+```
+
+MCP Inspector can use the same URL with **Streamable HTTP** and an
+`Authorization` request header.
 
 > [!NOTE]
 > The hosted service runs on Render's free tier. It can cold-start after being
@@ -88,8 +119,14 @@ cp .env.example .env
 
 Set a private local token in `.env`:
 
+```text
+MCP_BEARER_TOKEN=<private-random-value>
+```
+
+You can generate one with:
+
 ```bash
-MCP_BEARER_TOKEN=$(openssl rand -hex 32)
+openssl rand -hex 32
 ```
 
 The simplest local mode is memory-backed:
@@ -108,7 +145,7 @@ curl http://127.0.0.1:3000/health
 Expected response:
 
 ```json
-{"status":"ok","service":"order-ops-mcp"}
+{ "status": "ok", "service": "order-ops-mcp" }
 ```
 
 Codex local configuration:
@@ -118,8 +155,8 @@ Codex local configuration:
 url = "http://127.0.0.1:3000/mcp"
 enabled = true
 
-[mcp_servers.order-ops-local.http_headers]
-"Authorization" = "Bearer YOUR_LOCAL_MCP_TOKEN"
+[mcp_servers.order-ops-local.env_http_headers]
+"Authorization" = "MCP_BEARER_TOKEN"
 ```
 
 Claude Code uses the same header with the local URL:
@@ -254,17 +291,17 @@ with the static bearer token.
 
 ## Repository map
 
-| Area | Location |
-| --- | --- |
-| HTTP, host validation, MCP route | `src/server.ts` |
-| Validated `.env` configuration | `src/config/env.ts` |
-| Static bearer auth and demo identity | `src/auth.ts` |
-| MCP tool contracts | `src/tools/order-tools.ts` |
+| Area                                         | Location                                 |
+| -------------------------------------------- | ---------------------------------------- |
+| HTTP, host validation, MCP route             | `src/server.ts`                          |
+| Validated `.env` configuration               | `src/config/env.ts`                      |
+| Static bearer auth and demo identity         | `src/auth.ts`                            |
+| MCP tool contracts                           | `src/tools/order-tools.ts`               |
 | Provider interface and memory implementation | `src/data/types.ts`, `src/data/store.ts` |
-| Prisma client, schema, and migration | `src/data/database.ts`, `prisma/` |
-| Durable provider and transaction logic | `src/data/postgres-store.ts` |
-| Synthetic fixtures and Faker lifecycle | `src/data/seed.ts` |
-| Tests and smoke checks | `test/`, `scripts/` |
+| Prisma client, schema, and migration         | `src/data/database.ts`, `prisma/`        |
+| Durable provider and transaction logic       | `src/data/postgres-store.ts`             |
+| Synthetic fixtures and Faker lifecycle       | `src/data/seed.ts`                       |
+| Tests and smoke checks                       | `test/`, `scripts/`                      |
 
 See [AGENTS.md](AGENTS.md) for invariants and [db-plan.md](db-plan.md) for the
 design record behind the persistence work.
